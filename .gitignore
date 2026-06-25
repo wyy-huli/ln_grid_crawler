@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Env
+venv/
+env/
+.venv/
+
+# PyCharm
+.idea/
+*.iml
+
+# Build
+build/
+dist/
+dist_installer/
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# Browser Data
+browser_data/
+
+# Auth
+auth.json
+
+# Spec
+*.spec
+
+# Cache
+.pytest_cache/
+.mypy_cache/
+
+# Windows
+Thumbs.db
+Desktop.ini
