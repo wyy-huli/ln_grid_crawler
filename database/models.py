@@ -65,3 +65,42 @@ class FetchFailureLog(Base):
     target_time = Column(DateTime, nullable=False)
     reason = Column(String(255))
     created_at = Column(DateTime, default=datetime.now)
+
+
+class ContractBasic(Base):
+    __tablename__ = 'contract_basic'
+    contract_id = Column(String(64), primary_key=True)
+    contract_name = Column(String(200), nullable=False)
+    seller = Column(String(200))
+    buyer = Column(String(200))
+    contract_type = Column(String(100))
+    contract_sequence = Column(String(100))
+    contract_electricity = Column(Float)
+    monthly_electricity = Column(Float)
+    monthly_price = Column(Float)
+    curve_status = Column(String(50))
+    settlement_point = Column(String(200))
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        Index('idx_contract_basic_buyer', 'buyer'),
+        Index('idx_contract_basic_type', 'contract_type'),
+    )
+
+
+class ContractDailyData(Base):
+    __tablename__ = 'contract_daily_data'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    contract_id = Column(String(64), ForeignKey('contract_basic.contract_id', ondelete='CASCADE'), nullable=False)
+    curve_date = Column(Date, nullable=False)
+    time_point = Column(String(5), nullable=False)
+    electricity = Column(Float)
+    price = Column(Float)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('contract_id', 'curve_date', 'time_point', name='uq_contract_date_timepoint'),
+        Index('idx_contract_daily_contract', 'contract_id'),
+        Index('idx_contract_daily_date', 'curve_date'),
+    )

@@ -218,5 +218,64 @@ def auto_type3_dialog():
             threading.Thread(target=run_fetch, args=(start, end), daemon=True).start()
     window.close()
 
+def contract_crawler_dialog():
+    """合同分时曲线数据批量抓取对话框"""
+    if not is_auth_valid():
+        show_error('登录失效', '请先重新登录')
+        return
+
+    current_month = datetime.date.today().strftime('%Y-%m')
+
+    layout = [
+        [sg.Text('合同分时曲线数据抓取', font=('微软雅黑', 12))],
+        [sg.Text('选择月份:'), sg.Input(current_month, key='-MONTH-', size=(10, 1))],
+        [sg.Button('开始抓取'), sg.Button('取消')],
+        [sg.Output(size=(70, 15), key='-OUTPUT-')],
+    ]
+    window = sg.Window('批量合同数据抓取', layout, modal=True, finalize=True)
+
+    fetching = False
+
+    def run_fetch(month_str):
+        nonlocal fetching
+        print(f"开始抓取 {month_str} 月份合同数据...")
+        from core.contract_crawler import fetch_month_contract_data
+        success, fails = fetch_month_contract_data(month_str, log_callback=print)
+        print(f"抓取完成，成功 {success} 条，失败 {len(fails)} 条")
+        if fails:
+            print("失败列表:")
+            for f in fails:
+                print(f"  {f}")
+        fetching = False
+
+    while True:
+        event, values = window.read(timeout=100)
+        if event in (sg.WIN_CLOSED, '取消'):
+            if fetching:
+                sg.popup('正在抓取中，无法取消，请等待完成')
+                continue
+            break
+        if event == '开始抓取':
+            if fetching:
+                sg.popup('正在抓取中，请稍后...')
+                continue
+            month_str = values['-MONTH-']
+            if not month_str:
+                sg.popup_error('请选择月份')
+                continue
+            if len(month_str) != 7 or month_str[4] != '-':
+                sg.popup_error('请输入正确的月份格式 (YYYY-MM)')
+                continue
+            try:
+                datetime.datetime.strptime(month_str, '%Y-%m')
+            except ValueError:
+                sg.popup_error('请输入正确的月份格式 (YYYY-MM)')
+                continue
+            window['-OUTPUT-'].update('')
+            fetching = True
+            threading.Thread(target=run_fetch, args=(month_str,), daemon=True).start()
+    window.close()
+
+
 if __name__ == '__main__':
     type3_query_dialog()

@@ -142,6 +142,10 @@ TYPE3_CONS_URL = "https://pmos.ln.sgcc.com.cn/px-settlement-infpubquery-gs/LnInf
 
 # 类型4：机组状态数据
 TYPE4_URL = "https://pmos.ln.sgcc.com.cn/px-settlement-infpubquery/dynamicTable/dynamicTableQueryData"
+
+# 合同分时曲线接口
+CONTRACT_CURVE_BASE_URL = "https://pmos.ln.sgcc.com.cn/px-dif-contract-extranet/contractDivisionResolveCurve/getCurveBaseInfoManage"
+CONTRACT_CURVE_DETAIL_URL = "https://pmos.ln.sgcc.com.cn/px-dif-contract-extranet/contractDivisionResolveCurve/getDifCurveInfoById"
 TYPE4_BODY_TEMPLATE = {
     "publicKey": "010a92a0fc67918b12eb2b56b8274a2c",
     "authKey": {

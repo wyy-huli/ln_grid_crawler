@@ -2,7 +2,7 @@
 from sqlalchemy import create_engine, text, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from .models import Base, ApiConfig, FetchBatch, TimeSeriesData, UnitStatus, MeteringQuery, FetchFailureLog
+from .models import Base, ApiConfig, FetchBatch, TimeSeriesData, UnitStatus, MeteringQuery, FetchFailureLog, ContractBasic, ContractDailyData
 from utils.config import DATABASE_URL
 from datetime import datetime, date
 import json
@@ -148,4 +148,106 @@ def log_failure(api_code, reason):
     session.add(FetchFailureLog(api_code=api_code, target_time=datetime.now(), reason=reason))
     session.commit()
     session.close()
+
+
+def upsert_contract_basic(contract_data):
+    session = SessionLocal()
+    try:
+        contract_id = contract_data['contract_id']
+        existing = session.query(ContractBasic).filter_by(contract_id=contract_id).first()
+        
+        if existing:
+            existing.contract_name = contract_data.get('contract_name', existing.contract_name)
+            existing.seller = contract_data.get('seller', existing.seller)
+            existing.buyer = contract_data.get('buyer', existing.buyer)
+            existing.contract_type = contract_data.get('contract_type', existing.contract_type)
+            existing.contract_sequence = contract_data.get('contract_sequence', existing.contract_sequence)
+            existing.contract_electricity = contract_data.get('contract_electricity', existing.contract_electricity)
+            existing.monthly_electricity = contract_data.get('monthly_electricity', existing.monthly_electricity)
+            existing.monthly_price = contract_data.get('monthly_price', existing.monthly_price)
+            existing.curve_status = contract_data.get('curve_status', existing.curve_status)
+            existing.settlement_point = contract_data.get('settlement_point', existing.settlement_point)
+        else:
+            session.add(ContractBasic(
+                contract_id=contract_id,
+                contract_name=contract_data.get('contract_name', ''),
+                seller=contract_data.get('seller'),
+                buyer=contract_data.get('buyer'),
+                contract_type=contract_data.get('contract_type'),
+                contract_sequence=contract_data.get('contract_sequence'),
+                contract_electricity=contract_data.get('contract_electricity'),
+                monthly_electricity=contract_data.get('monthly_electricity'),
+                monthly_price=contract_data.get('monthly_price'),
+                curve_status=contract_data.get('curve_status'),
+                settlement_point=contract_data.get('settlement_point'),
+            ))
+        session.commit()
+        print(f"[DB] 保存合同基础信息: {contract_id}")
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def save_contract_daily_data(contract_id, curve_date_str, electricity_data, price_data, log_callback=None):
+    session = SessionLocal()
+    try:
+        curve_date = datetime.strptime(curve_date_str, '%Y-%m-%d').date()
+        
+        for tp, electricity in electricity_data.items():
+            stmt = sqlite_insert(ContractDailyData).values(
+                contract_id=contract_id,
+                curve_date=curve_date,
+                time_point=tp,
+                electricity=float(electricity),
+                price=None
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['contract_id', 'curve_date', 'time_point'],
+                set_={'electricity': float(electricity)}
+            )
+            session.execute(stmt)
+        
+        for tp, price in price_data.items():
+            stmt = sqlite_insert(ContractDailyData).values(
+                contract_id=contract_id,
+                curve_date=curve_date,
+                time_point=tp,
+                electricity=None,
+                price=float(price)
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['contract_id', 'curve_date', 'time_point'],
+                set_={'price': float(price)}
+            )
+            session.execute(stmt)
+        
+        session.commit()
+        
+        # 保存后验证
+        if log_callback:
+            records = session.query(ContractDailyData).filter_by(
+                contract_id=contract_id,
+                curve_date=curve_date
+            ).all()
+            non_zero_elec = sum(1 for r in records if r.electricity and r.electricity != 0)
+            non_zero_price = sum(1 for r in records if r.price and r.price != 0)
+            log_callback(f"  [DB验证] {curve_date_str} 共{len(records)}条，非零电量:{non_zero_elec}，非零电价:{non_zero_price}")
+            if records:
+                # 打印几个时间点的值
+                sample_points = ['00:00', '08:00', '12:00', '15:00', '20:00']
+                for sp in sample_points:
+                    rec = session.query(ContractDailyData).filter_by(
+                        contract_id=contract_id, curve_date=curve_date, time_point=sp
+                    ).first()
+                    if rec:
+                        log_callback(f"    {sp}: 电量={rec.electricity}, 电价={rec.price}")
+        
+        print(f"[DB] 保存合同日数据: {contract_id} {curve_date_str}")
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
 

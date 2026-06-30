@@ -44,6 +44,7 @@ def main():
         [sg.Button('执行补抓'), sg.Text('', key='-MANUAL_RESULT-', size=(40, 1))],
         [sg.HorizontalSeparator()],
         [sg.Button('批量抓取用电数据'), sg.Button('用电数据查询（手动）')],
+        [sg.Button('批量抓取合同数据')],
         [sg.HorizontalSeparator()],
         [sg.Text('运行日志', font=('微软雅黑', 12))],
         [sg.Output(size=(80, 15), key='-OUTPUT-')],
@@ -119,6 +120,10 @@ def main():
         if event == '用电数据查询（手动）':
             from ui.dialogs import type3_query_dialog
             type3_query_dialog()
+
+        if event == '批量抓取合同数据':
+            from ui.dialogs import contract_crawler_dialog
+            contract_crawler_dialog()
 
         if event == '清空日志':
             window['-OUTPUT-'].update('')
