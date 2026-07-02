@@ -167,7 +167,7 @@ def register_jobs():
 
     scheduler.add_job(
         job_type2,
-        trigger=CronTrigger(minute="*/15", second=30),
+        trigger=CronTrigger(minute="*/15", second=40),
         id="realtime_clearing_job",
         replace_existing=True,
         max_instances=1,
