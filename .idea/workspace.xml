@@ -4,14 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="af2d6044-7373-461b-a43f-582df6973e5d" name="更改" comment="电力交易爬数工具V1.0">
+    <list default="true" id="af2d6044-7373-461b-a43f-582df6973e5d" name="更改" comment="电力交易爬数工具V1.1 新增接口">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/build_exe.bat" beforeDir="false" afterPath="$PROJECT_DIR$/build_exe.bat" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/database/db_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/database/db_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/database/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/database/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/dialogs.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/config.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -215,6 +209,23 @@
       <option name="presentableId" value="Default" />
       <updated>1779374855012</updated>
     </task>
+    <task id="LOCAL-00001" summary="电力交易爬数工具V1.1">
+      <option name="closed" value="true" />
+      <created>1782829267163</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1782829267163</updated>
+    </task>
+    <task id="LOCAL-00002" summary="电力交易爬数工具V1.1 新增接口">
+      <option name="closed" value="true" />
+      <created>1782829376169</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1782829376169</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -230,6 +241,8 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="电力交易爬数工具V1.0" />
-    <option name="LAST_COMMIT_MESSAGE" value="电力交易爬数工具V1.0" />
+    <MESSAGE value="电力交易爬数工具V1.1" />
+    <MESSAGE value="电力交易爬数工具V1.1 新增接口" />
+    <option name="LAST_COMMIT_MESSAGE" value="电力交易爬数工具V1.1 新增接口" />
   </component>
 </project>
