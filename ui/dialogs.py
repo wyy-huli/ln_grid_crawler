@@ -127,7 +127,13 @@ def type3_query_dialog():
                 if resp.status_code == 200:
                     cons_data = resp.json()
                     if cons_data.get('status') == 0:
-                        cons_list = cons_data.get('data', {}).get('list', [])
+                        raw_list = cons_data.get('data', {}).get('list', [])
+                        cons_list = []
+                        for item in raw_list:
+                            if isinstance(item, dict):
+                                cons_list.append(str(item.get('consNo', item.get('value', str(item)))))
+                            else:
+                                cons_list.append(str(item))
                         window['-CONS-'].update(values=cons_list)
                     else:
                         show_error('获取用电编号失败', cons_data.get('message', ''))
@@ -158,7 +164,7 @@ def type3_query_dialog():
                 if resp.status_code == 200:
                     result = resp.json()
                     if result.get('status') == 0:
-                        save_type3_query(info_date, cons_no, mid, json.dumps(result))
+                        save_type3_query(info_date, cons_no, mid, json.dumps(result), member)
                         window['-RESULT-'].update('查询成功，数据已保存')
                     else:
                         show_error('查询失败', result.get('message', '未知错误'))

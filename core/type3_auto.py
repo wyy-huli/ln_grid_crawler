@@ -96,7 +96,13 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
             cons_data = resp.json()
             if cons_data.get('status') != 0:
                 raise Exception(cons_data.get('message', '获取用电编号失败'))
-            cons_list = cons_data.get('data', {}).get('list', [])
+            raw_list = cons_data.get('data', {}).get('list', [])
+            cons_list = []
+            for item in raw_list:
+                if isinstance(item, dict):
+                    cons_list.append(str(item.get('consNo', item.get('value', str(item)))))
+                else:
+                    cons_list.append(str(item))
             if not cons_list:
                 if log_callback:
                     log_callback(f"  -> 无用电编号")
@@ -129,7 +135,7 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
                     if resp.status_code == 200:
                         result = resp.json()
                         if result.get('status') == 0:
-                            save_type3_query(date_str, cons_no, mid, json.dumps(result))
+                            save_type3_query(date_str, cons_no, mid, json.dumps(result), mname)
                             success_count += 1
                             if log_callback:
                                 log_callback(f"  {date_str} {cons_no} 保存成功")

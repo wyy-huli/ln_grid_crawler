@@ -55,6 +55,7 @@ class MeteringQuery(Base):
     query_date = Column(Date, nullable=False)
     cons_no = Column(String(50), nullable=False)
     mid = Column(String(64), nullable=False)
+    mname = Column(String(100))
     response_json = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
 

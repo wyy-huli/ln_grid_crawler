@@ -15,9 +15,10 @@ def fetch_cons_by_member(mid, date, cookies):
 
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        print("用法: python manual_type3.py <mid> <cons_no> <date>")
+        print("用法: python manual_type3.py <mid> <cons_no> <date> [mname]")
         sys.exit(1)
     mid, cons_no, date = sys.argv[1], sys.argv[2], sys.argv[3]
+    mname = sys.argv[4] if len(sys.argv) > 4 else None
     with open(AUTH_FILE) as f:
         cookies = {c['name']: c['value'] for c in json.load(f)['cookies']}
     resp = requests.post(TYPE3_QUERY_URL, json={
@@ -25,7 +26,7 @@ if __name__ == '__main__':
         "pageInfo": {"total": 96, "list": [], "pageNum": 1, "pageSize": 96}
     }, cookies=cookies)
     if resp.status_code == 200 and resp.json()['status'] == 0:
-        save_type3_query(date, cons_no, mid, json.dumps(resp.json()))
+        save_type3_query(date, cons_no, mid, json.dumps(resp.json()), mname)
         print("保存成功")
     else:
         print("查询失败:", resp.text)

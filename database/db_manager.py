@@ -137,11 +137,25 @@ def save_type4_data(records):
     finally:
         session.close()
 
-def save_type3_query(query_date, cons_no, mid, response_json):
+def save_type3_query(query_date, cons_no, mid, response_json, mname=None):
     session = SessionLocal()
-    session.add(MeteringQuery(query_date=query_date, cons_no=cons_no, mid=mid, response_json=response_json))
-    session.commit()
-    session.close()
+    try:
+        if isinstance(query_date, str):
+            query_date = datetime.strptime(query_date, '%Y-%m-%d').date()
+        cons_no = str(cons_no).strip() if cons_no else ''
+        mid = str(mid).strip() if mid else ''
+        mname = str(mname).strip() if mname else None
+        if not cons_no or not mid:
+            raise ValueError(f"参数无效: cons_no='{cons_no}', mid='{mid}'")
+        session.add(MeteringQuery(query_date=query_date, cons_no=cons_no, mid=mid, mname=mname, response_json=response_json))
+        session.commit()
+        print(f"[DB] 保存用电查询: {query_date} {cons_no} {'(' + mname + ')' if mname else ''}")
+    except Exception as e:
+        session.rollback()
+        print(f"[DB] 保存失败: {e}")
+        raise e
+    finally:
+        session.close()
 
 def log_failure(api_code, reason):
     session = SessionLocal()
