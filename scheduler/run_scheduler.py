@@ -111,15 +111,9 @@ def job_dropdown(group_cfg):
 def job_type2():
     api_code = "realtime_clearing"
     print(f"[调度] 执行实时接口: 实时出清参考信息")
-    try:
-        success = run_type2()
-        if success:
-            print(f"[成功] 实时出清参考信息 已更新")
-        else:
-            print(f"[实时] 实时出清参考信息 本次无数据")
-    except Exception as e:
-        print(f"[实时] 异常: {e}")
-        log_failure(api_code, str(e))
+    success = execute_with_timeout(run_type2, api_code=api_code, timeout_sec=120)
+    if success:
+        print(f"[成功] 实时出清参考信息 已更新")
 
 
 def job_type4():
