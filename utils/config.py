@@ -30,7 +30,33 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(BROWSER_DATA_DIR, exist_ok=True)
 
-DATABASE_URL = f"sqlite:///{DB_FILE}"
+def _build_database_url():
+    """支持通过环境变量切换 MySQL / SQLite。默认 SQLite 保持向后兼容。
+
+    MySQL 环境变量:
+        GRID_DB_TYPE=mysql
+        GRID_DB_HOST=xxx
+        GRID_DB_PORT=3306
+        GRID_DB_NAME=grid_data
+        GRID_DB_USER=root
+        GRID_DB_PASSWORD=xxx
+    """
+    import os as _os
+    db_type = _os.environ.get('GRID_DB_TYPE', 'sqlite').lower()
+    if db_type == 'mysql':
+        host = _os.environ.get('GRID_DB_HOST', 'localhost')
+        port = _os.environ.get('GRID_DB_PORT', '3306')
+        name = _os.environ.get('GRID_DB_NAME', 'grid_data')
+        user = _os.environ.get('GRID_DB_USER', 'root')
+        password = _os.environ.get('GRID_DB_PASSWORD', '')
+        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
+    return f"sqlite:///{DB_FILE}"
+
+DATABASE_URL = _build_database_url()
+
+def is_mysql():
+    """判断当前是否使用 MySQL 数据库。"""
+    return DATABASE_URL.startswith('mysql')
 
 # 普通类型1接口（无下拉）
 SIMPLE_TYPE1_APIS = [    {

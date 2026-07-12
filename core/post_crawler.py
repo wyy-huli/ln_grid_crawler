@@ -97,10 +97,19 @@ def _playwright_fetch_type4():
 
         except Exception as e:
             logger.error(f"[类型4] 异常: {e}")
-            page.screenshot(path="type4_error.png")
+            try:
+                page.screenshot(path="type4_error.png")
+            except Exception:
+                pass
         finally:
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            except Exception as ce:
+                logger.error(f"[类型4] context.close 异常（吞掉）: {ce}")
+            try:
+                browser.close()
+            except Exception as be:
+                logger.error(f"[类型4] browser.close 异常（吞掉）: {be}")
 
     if captured_data:
         save_type4_data(captured_data)

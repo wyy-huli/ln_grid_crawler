@@ -84,14 +84,32 @@ def run_simple_type1(api_cfg, manual_date=None):
                 )
         except Exception as e:
             print(f"[{api_name}] 抓取异常: {e}")
-            log_failure(api_cfg["api_code"], str(e))
+            try:
+                log_failure(api_cfg["api_code"], str(e))
+            except Exception as le:
+                print(f"[{api_name}] log_failure 异常（吞掉）: {le}")
             return False
         finally:
-            context.close()
-            browser.close()
+            # close 失败不能抛出，否则会掩盖原始异常并影响 worker 线程状态
+            try:
+                context.close()
+            except Exception as ce:
+                print(f"[{api_name}] context.close 异常（吞掉）: {ce}")
+            try:
+                browser.close()
+            except Exception as be:
+                print(f"[{api_name}] browser.close 异常（吞掉）: {be}")
 
     if captured:
-        save_type1_batch(api_cfg["api_code"], api_name, target_date, captured)
+        try:
+            save_type1_batch(api_cfg["api_code"], api_name, target_date, captured)
+        except Exception as e:
+            print(f"[{api_name}] save_type1_batch 异常: {e}")
+            try:
+                log_failure(api_cfg["api_code"], str(e))
+            except Exception:
+                pass
+            return False
         return True
     else:
         log_failure(api_cfg["api_code"], "no_data")
@@ -201,11 +219,20 @@ def run_dropdown_group(group_cfg, manual_date=None):
         except Exception as e:
             print(f"[{group_name}] 整体异常: {e}")
             for opt in group_cfg["options"]:
-                log_failure(opt["api_code"], f"group_error: {e}")
+                try:
+                    log_failure(opt["api_code"], f"group_error: {e}")
+                except Exception:
+                    pass
             return False
         finally:
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            except Exception as ce:
+                print(f"[{group_name}] context.close 异常（吞掉）: {ce}")
+            try:
+                browser.close()
+            except Exception as be:
+                print(f"[{group_name}] browser.close 异常（吞掉）: {be}")
 
     any_success = False
     for opt in group_cfg["options"]:
@@ -269,14 +296,31 @@ def run_type2():
                 captured.extend(data)
         except Exception as e:
             print(f"[实时] 抓取异常: {e}")
-            log_failure("realtime_clearing", str(e))
+            try:
+                log_failure("realtime_clearing", str(e))
+            except Exception as le:
+                print(f"[实时] log_failure 异常（吞掉）: {le}")
             return False
         finally:
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            except Exception as ce:
+                print(f"[实时] context.close 异常（吞掉）: {ce}")
+            try:
+                browser.close()
+            except Exception as be:
+                print(f"[实时] browser.close 异常（吞掉）: {be}")
 
     if captured:
-        upsert_type2_data("realtime_clearing", "实时出清参考信息", today, captured)
+        try:
+            upsert_type2_data("realtime_clearing", "实时出清参考信息", today, captured)
+        except Exception as e:
+            print(f"[实时] upsert_type2_data 异常: {e}")
+            try:
+                log_failure("realtime_clearing", str(e))
+            except Exception:
+                pass
+            return False
         return True
     else:
         log_failure("realtime_clearing", "no_data")

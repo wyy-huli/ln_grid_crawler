@@ -2,13 +2,39 @@
 from sqlalchemy import create_engine, text, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from .models import Base, ApiConfig, FetchBatch, TimeSeriesData, UnitStatus, MeteringQuery, FetchFailureLog, ContractBasic, ContractDailyData
-from utils.config import DATABASE_URL
+from utils.config import DATABASE_URL, is_mysql
 from datetime import datetime, date
 import json
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True,pool_recycle=3600)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=3600)
 SessionLocal = sessionmaker(bind=engine)
+
+def _upsert(table_obj, session, values_list, index_elements, set_fields):
+    """通用 upsert:MySQL 用 ON DUPLICATE KEY UPDATE,SQLite 用 ON CONFLICT。
+
+    Args:
+        table_obj: ORM 模型类
+        session: 当前 session
+        values_list: list of dict, 要插入的行数据
+        index_elements: list[str], 冲突判断的索引字段
+        set_fields: list[str], 冲突时更新的字段名
+    """
+    if not values_list:
+        return
+    if is_mysql():
+        stmt = mysql_insert(table_obj).values(values_list)
+        update_dict = {f: getattr(stmt.inserted, f) for f in set_fields}
+        stmt = stmt.on_duplicate_key_update(**update_dict)
+    else:
+        stmt = sqlite_insert(table_obj).values(values_list)
+        update_dict = {f: getattr(stmt.excluded, f) for f in set_fields}
+        stmt = stmt.on_conflict_do_update(
+            index_elements=index_elements,
+            set_=update_dict
+        )
+    session.execute(stmt)
 
 def init_db():
     Base.metadata.create_all(engine)
@@ -80,21 +106,22 @@ def upsert_type2_data(api_code, api_name, target_date_str, records):
             session.flush()
 
         updated_points = []
+        rows = []
         for r in records:
             tp = r['x'][:5]
             value = float(r['y'])
-            # SQLite upsert: INSERT OR REPLACE
-            stmt = sqlite_insert(TimeSeriesData).values(
-                batch_id=batch.batch_id,
-                time_point=tp,
-                value=value
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['batch_id', 'time_point'],
-                set_={'value': value}
-            )
-            session.execute(stmt)
+            rows.append({
+                'batch_id': batch.batch_id,
+                'time_point': tp,
+                'value': value
+            })
             updated_points.append(tp)
+
+        _upsert(
+            TimeSeriesData, session, rows,
+            index_elements=['batch_id', 'time_point'],
+            set_fields=['value']
+        )
 
         session.commit()
         print(f"[DB] upsert {api_name} {len(records)} 条，时间点: {updated_points[:3]}...")
@@ -158,10 +185,21 @@ def save_type3_query(query_date, cons_no, mid, response_json, mname=None):
         session.close()
 
 def log_failure(api_code, reason):
-    session = SessionLocal()
-    session.add(FetchFailureLog(api_code=api_code, target_time=datetime.now(), reason=reason))
-    session.commit()
-    session.close()
+    """记录失败日志。自身抛出的任何异常都会被吞掉，避免影响调度链路。"""
+    session = None
+    try:
+        session = SessionLocal()
+        session.add(FetchFailureLog(api_code=api_code, target_time=datetime.now(), reason=reason))
+        session.commit()
+    except Exception as e:
+        # 数据库锁/异常不能影响调度，仅打印
+        print(f"[DB] log_failure 失败（吞掉）: {e}")
+    finally:
+        try:
+            if session is not None:
+                session.close()
+        except Exception:
+            pass
 
 
 def upsert_contract_basic(contract_data):
@@ -209,33 +247,35 @@ def save_contract_daily_data(contract_id, curve_date_str, electricity_data, pric
     try:
         curve_date = datetime.strptime(curve_date_str, '%Y-%m-%d').date()
         
+        elec_rows = []
         for tp, electricity in electricity_data.items():
-            stmt = sqlite_insert(ContractDailyData).values(
-                contract_id=contract_id,
-                curve_date=curve_date,
-                time_point=tp,
-                electricity=float(electricity),
-                price=None
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['contract_id', 'curve_date', 'time_point'],
-                set_={'electricity': float(electricity)}
-            )
-            session.execute(stmt)
-        
+            elec_rows.append({
+                'contract_id': contract_id,
+                'curve_date': curve_date,
+                'time_point': tp,
+                'electricity': float(electricity),
+                'price': None
+            })
+        _upsert(
+            ContractDailyData, session, elec_rows,
+            index_elements=['contract_id', 'curve_date', 'time_point'],
+            set_fields=['electricity']
+        )
+
+        price_rows = []
         for tp, price in price_data.items():
-            stmt = sqlite_insert(ContractDailyData).values(
-                contract_id=contract_id,
-                curve_date=curve_date,
-                time_point=tp,
-                electricity=None,
-                price=float(price)
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['contract_id', 'curve_date', 'time_point'],
-                set_={'price': float(price)}
-            )
-            session.execute(stmt)
+            price_rows.append({
+                'contract_id': contract_id,
+                'curve_date': curve_date,
+                'time_point': tp,
+                'electricity': None,
+                'price': float(price)
+            })
+        _upsert(
+            ContractDailyData, session, price_rows,
+            index_elements=['contract_id', 'curve_date', 'time_point'],
+            set_fields=['price']
+        )
         
         session.commit()
         

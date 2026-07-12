@@ -4,12 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="af2d6044-7373-461b-a43f-582df6973e5d" name="更改" comment="电力交易爬数工具V1.1 打包">
-      <change beforePath="$PROJECT_DIR$/core/type3_auto.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/type3_auto.py" afterDir="false" />
+    <list default="true" id="af2d6044-7373-461b-a43f-582df6973e5d" name="更改" comment="电力交易爬数工具V1.4 优化用户电量数据获取">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/chart_crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/chart_crawler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/post_crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/post_crawler.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/database/db_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/database/db_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/database/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/database/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/manual_type3.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/manual_type3.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/dialogs.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/installer.iss" beforeDir="false" afterPath="$PROJECT_DIR$/installer.iss" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/run_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/run_scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/config.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -201,7 +203,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-8753aad8314d-d902c0275401-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-252.25557.178" />
+        <option value="bundled-python-sdk-5781019d23a5-cbfc7b97e6b2-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-252.28539.58" />
       </set>
     </attachedChunks>
   </component>
@@ -237,7 +239,15 @@
       <option name="project" value="LOCAL" />
       <updated>1783001733879</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="电力交易爬数工具V1.4 优化用户电量数据获取">
+      <option name="closed" value="true" />
+      <created>1783260206387</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1783260206387</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -256,6 +266,7 @@
     <MESSAGE value="电力交易爬数工具V1.1" />
     <MESSAGE value="电力交易爬数工具V1.1 新增接口" />
     <MESSAGE value="电力交易爬数工具V1.1 打包" />
-    <option name="LAST_COMMIT_MESSAGE" value="电力交易爬数工具V1.1 打包" />
+    <MESSAGE value="电力交易爬数工具V1.4 优化用户电量数据获取" />
+    <option name="LAST_COMMIT_MESSAGE" value="电力交易爬数工具V1.4 优化用户电量数据获取" />
   </component>
 </project>
