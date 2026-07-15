@@ -49,6 +49,11 @@ class UnitStatus(Base):
     guid = Column(String(64), unique=True, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
 
+    __table_args__ = (
+        Index('idx_unit_status_biztime', 'business_time'),
+        Index('idx_unit_status_unitname', 'unit_name'),
+    )
+
 class MeteringQuery(Base):
     __tablename__ = 'metering_query'
     id = Column(Integer, primary_key=True, autoincrement=True)

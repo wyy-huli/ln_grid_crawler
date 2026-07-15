@@ -1,6 +1,6 @@
 ; 镁时镁刻电力数据采集工具 安装脚本
 #define MyAppName "镁时镁刻电力数据采集工具"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "镁时镁刻"
 #define MyAppExeName "电力数据采集工具.exe"
 
@@ -26,7 +26,8 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加图标:"; Flags: unchecked
 
 [Files]
-Source: "dist\电力数据采集工具.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\电力数据采集工具\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: ".env.example"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

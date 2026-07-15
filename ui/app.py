@@ -13,8 +13,9 @@ sys.path.insert(0, BASE_DIR)
 
 from scheduler.run_scheduler import start as start_scheduler, stop as stop_scheduler
 from auth.auth_utils import is_auth_valid
-from core.chart_crawler import manual_fetch
+from core.browser_guard import run_in_subprocess
 from utils.config import SIMPLE_TYPE1_APIS, DROP_GROUPS
+from utils.logger import logger
 
 def get_api_list():
     """获取所有可手动补抓的接口列表"""
@@ -44,7 +45,7 @@ def main():
         [sg.Button('执行补抓'), sg.Text('', key='-MANUAL_RESULT-', size=(40, 1))],
         [sg.HorizontalSeparator()],
         [sg.Button('批量抓取用电数据'), sg.Button('用电数据查询（手动）')],
-        [sg.Button('批量抓取合同数据')],
+        [sg.Button('批量抓取合同数据'), sg.Button('手动抓取合同数据')],
         [sg.HorizontalSeparator()],
         [sg.Text('运行日志', font=('微软雅黑', 12))],
         [sg.Output(size=(80, 15), key='-OUTPUT-')],
@@ -68,27 +69,27 @@ def main():
                 except Exception as e:
                     window.write_event_value('-LOGIN-DONE-', f'登录异常: {e}')
             threading.Thread(target=do_login, daemon=True).start()
-            print('登录窗口已启动，请在浏览器中完成登录，完成后请点击"刷新状态"。')
+            logger.info('登录窗口已启动，请在浏览器中完成登录，完成后请点击"刷新状态"。')
 
         if event == '刷新状态':
             try:
                 valid = is_auth_valid()
                 window['-STATUS-'].update('登录状态：有效' if valid else '登录状态：已失效')
-                print(f'登录状态已刷新：{"有效" if valid else "已失效"}')
+                logger.info(f'登录状态已刷新：{"有效" if valid else "已失效"}')
             except Exception as e:
                 window['-STATUS-'].update('登录状态：检测失败')
-                print(f'状态检测异常: {e}')
+                logger.error(f'状态检测异常: {e}')
 
         if event == '启动定时抓取':
             if not is_auth_valid():
                 sg.popup_error('登录状态已失效，请先重新登录！')
             else:
                 start_scheduler()
-                print('定时调度已启动，实时接口将立即执行一次。')
+                logger.info('定时调度已启动，实时接口将立即执行一次。')
 
         if event == '停止抓取':
             stop_scheduler()
-            print('定时调度已停止')
+            logger.info('定时调度已停止')
 
         if event == '执行补抓':
             api_choice = values['-API-']
@@ -97,11 +98,17 @@ def main():
                 sg.popup_error('请选择一个接口')
                 continue
             api_code = api_choice.split(':')[0].strip()
-            print(f"手动补抓: {api_code} 日期: {date_str or '默认'}")
-            # 使用线程避免界面卡顿
+            logger.info(f"手动补抓: {api_code} 日期: {date_str or '默认'}")
+            # 使用线程避免界面卡顿；线程内用进程级隔离执行浏览器任务
             def do_fetch():
                 try:
-                    success = manual_fetch(api_code, date_str)
+                    # 子进程内执行 manual_fetch，超时强制 kill，不会卡界面
+                    success = run_in_subprocess(
+                        'core.chart_crawler.manual_fetch',
+                        timeout_sec=300,
+                        args=(api_code, date_str),
+                        kill_chrome_on_timeout=True,
+                    )
                     if success:
                         window.write_event_value('-MANUAL-DONE-', f'{api_code} 补抓成功')
                     else:
@@ -124,6 +131,10 @@ def main():
         if event == '批量抓取合同数据':
             from ui.dialogs import contract_crawler_dialog
             contract_crawler_dialog()
+
+        if event == '手动抓取合同数据':
+            from ui.dialogs import manual_contract_dialog
+            manual_contract_dialog()
 
         if event == '清空日志':
             window['-OUTPUT-'].update('')

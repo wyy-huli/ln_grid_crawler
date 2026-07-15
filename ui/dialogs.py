@@ -251,7 +251,10 @@ def contract_crawler_dialog():
         if fails:
             print("失败列表:")
             for f in fails:
-                print(f"  {f}")
+                if len(f) == 3:
+                    print(f"  合同: {f[0]} (ID:{f[1]}) - {f[2]}")
+                else:
+                    print(f"  {f}")
         fetching = False
 
     while True:
@@ -280,6 +283,129 @@ def contract_crawler_dialog():
             window['-OUTPUT-'].update('')
             fetching = True
             threading.Thread(target=run_fetch, args=(month_str,), daemon=True).start()
+    window.close()
+
+
+def manual_contract_dialog():
+    """手动选择单个合同进行抓取"""
+    if not is_auth_valid():
+        show_error('登录失效', '请先重新登录')
+        return
+
+    current_month = datetime.date.today().strftime('%Y-%m')
+
+    layout = [
+        [sg.Text('手动抓取合同数据', font=('微软雅黑', 12))],
+        [sg.Text('选择月份:'), sg.Input(current_month, key='-MONTH-', size=(10, 1))],
+        [sg.Button('获取合同列表'), sg.Button('抓取选中合同'), sg.Button('取消')],
+        [sg.Text('合同列表:')],
+        [sg.Listbox([], key='-CONTRACT-LIST-', size=(70, 10), enable_events=True)],
+        [sg.Text('选中合同:'), sg.Text('', key='-SELECTED-', size=(50, 1))],
+        [sg.Output(size=(70, 10), key='-OUTPUT-')],
+    ]
+    window = sg.Window('手动合同数据抓取', layout, modal=True, finalize=True)
+
+    fetching = False
+    contract_list_data = []
+
+    def fetch_contract_list_data(month_str):
+        try:
+            from core.contract_crawler import fetch_contract_list
+            print(f"正在获取 {month_str} 月份合同列表...")
+            contracts = fetch_contract_list(month_str, log_callback=print)
+            result_list = []
+            for c in contracts:
+                result_list.append({
+                    'contractId': c.get('contractId', ''),
+                    'contractName': c.get('contractName', '')
+                })
+            window.write_event_value('-CONTRACT-LIST-READY-', result_list)
+        except Exception as e:
+            print(f"获取合同列表失败: {e}")
+            window.write_event_value('-CONTRACT-LIST-ERROR-', str(e))
+
+    def run_single_fetch(contract_id, contract_name, month_str):
+        nonlocal fetching
+        from core.contract_crawler import fetch_single_contract_data
+        success, error = fetch_single_contract_data(contract_id, contract_name, month_str, log_callback=print)
+        if error:
+            print(f"抓取失败: {error}")
+        else:
+            print(f"抓取成功，共 {success} 天数据")
+        window.write_event_value('-FETCH-DONE-', None)
+
+    while True:
+        event, values = window.read(timeout=100)
+        if event in (sg.WIN_CLOSED, '取消'):
+            if fetching:
+                sg.popup('正在抓取中，无法取消，请等待完成')
+                continue
+            break
+
+        if event == '获取合同列表':
+            if fetching:
+                sg.popup('正在操作中，请稍后...')
+                continue
+            month_str = values['-MONTH-']
+            if not month_str:
+                sg.popup_error('请选择月份')
+                continue
+            if len(month_str) != 7 or month_str[4] != '-':
+                sg.popup_error('请输入正确的月份格式 (YYYY-MM)')
+                continue
+            try:
+                datetime.datetime.strptime(month_str, '%Y-%m')
+            except ValueError:
+                sg.popup_error('请输入正确的月份格式 (YYYY-MM)')
+                continue
+            window['-OUTPUT-'].update('')
+            fetching = True
+            threading.Thread(target=fetch_contract_list_data, args=(month_str,), daemon=True).start()
+
+        if event == '-CONTRACT-LIST-READY-':
+            contract_list_data = values[event]
+            contract_names = [f"{c['contractName']} (ID:{c['contractId']})" for c in contract_list_data]
+            window['-CONTRACT-LIST-'].update(values=contract_names)
+            print(f"共获取到 {len(contract_names)} 个合同")
+            fetching = False
+
+        if event == '-CONTRACT-LIST-ERROR-':
+            show_error('获取合同列表失败', values[event])
+            fetching = False
+
+        if event == '-FETCH-DONE-':
+            fetching = False
+
+        if event == '-CONTRACT-LIST-' and values['-CONTRACT-LIST-']:
+            selected = values['-CONTRACT-LIST-'][0]
+            window['-SELECTED-'].update(selected)
+
+        if event == '抓取选中合同':
+            if fetching:
+                sg.popup('正在抓取中，请稍后...')
+                continue
+            selected_items = values['-CONTRACT-LIST-']
+            if not selected_items:
+                sg.popup_error('请先选择一个合同')
+                continue
+            month_str = values['-MONTH-']
+            if not month_str:
+                sg.popup_error('请选择月份')
+                continue
+
+            selected_text = selected_items[0]
+            idx = selected_text.rfind(' (ID:')
+            if idx > 0:
+                contract_name = selected_text[:idx]
+                contract_id = selected_text[idx + 5:-1]
+            else:
+                sg.popup_error('无法解析合同信息')
+                continue
+
+            window['-OUTPUT-'].update('')
+            fetching = True
+            threading.Thread(target=run_single_fetch, args=(contract_id, contract_name, month_str), daemon=True).start()
+
     window.close()
 
 

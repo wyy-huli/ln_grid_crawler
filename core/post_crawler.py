@@ -5,7 +5,7 @@ import requests
 from playwright.sync_api import sync_playwright
 from auth.auth_utils import is_auth_valid
 from database.db_manager import save_type4_data, log_failure
-from utils.config import AUTH_FILE, TYPE4_URL, TYPE4_BODY_TEMPLATE
+from utils.config import AUTH_FILE, TYPE4_URL, TYPE4_BODY_TEMPLATE, BROWSER_HEADLESS
 from utils.logger import logger
 
 
@@ -22,31 +22,32 @@ def _get_cookies_from_auth():
 
 def _playwright_fetch_type4():
     captured_data = []
+    context = None
     with sync_playwright() as p:
         browser = p.chromium.launch(
             channel="chrome",
-            headless=False,
+            headless=BROWSER_HEADLESS,
             args=["--disable-blink-features=AutomationControlled"],
         )
-        context = browser.new_context(
-            storage_state=AUTH_FILE if os.path.exists(AUTH_FILE) else None,
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/149.0.0.0 Safari/537.36"
-            ),
-        )
-        page = context.new_page()
         try:
+            context = browser.new_context(
+                storage_state=AUTH_FILE if os.path.exists(AUTH_FILE) else None,
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/149.0.0.0 Safari/537.36"
+                ),
+            )
+            page = context.new_page()
             # 1. 打开首页
             page.goto("https://pmos.ln.sgcc.com.cn", wait_until="networkidle", timeout=60000)
             page.wait_for_timeout(3000)
 
-            # 2. 点击“信息披露”
+            # 2. 点击"信息披露"
             page.click("text=信息披露")
             page.wait_for_timeout(1500)
 
-            # 3. 点击“综合查询”，监听新窗口
+            # 3. 点击"综合查询"，监听新窗口
             with context.expect_page() as new_page_info:
                 page.click("text=综合查询")
             new_page = new_page_info.value
@@ -55,11 +56,11 @@ def _playwright_fetch_type4():
             page.bring_to_front()
             page.wait_for_timeout(3000)
 
-            # 4. 点击“电网运行”
+            # 4. 点击"电网运行"
             page.click("text=电网运行")
             page.wait_for_timeout(3000)
 
-            # 5. 精确点击“机组状态”（避免点到“机组状态（新）”）
+            # 5. 精确点击"机组状态"（避免点到"机组状态（新）"）
             target = page.locator("text=机组状态").filter(has_not_text="（新）").first
             target.evaluate("node => node.click()")
             page.wait_for_timeout(5000)
@@ -93,7 +94,7 @@ def _playwright_fetch_type4():
             if data.get("status") == 0:
                 obj_list = data.get("data", {}).get("objectList", {}).get("list", [])
                 captured_data = obj_list
-                print(f"[类型4] 成功捕获 {len(captured_data)} 条记录")
+                logger.info(f"[类型4] 成功捕获 {len(captured_data)} 条记录")
 
         except Exception as e:
             logger.error(f"[类型4] 异常: {e}")
@@ -103,7 +104,8 @@ def _playwright_fetch_type4():
                 pass
         finally:
             try:
-                context.close()
+                if context is not None:
+                    context.close()
             except Exception as ce:
                 logger.error(f"[类型4] context.close 异常（吞掉）: {ce}")
             try:

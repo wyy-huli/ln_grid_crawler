@@ -69,6 +69,8 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
     total_members = len(members)
     success_count = 0
     failures = []
+    auth_check_interval = 5
+    auth_check_count = 0
 
     date_range = []
     d = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
@@ -117,10 +119,14 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
         # 3. 遍历日期和用电编号
         for cons_no in cons_list:
             for date_str in date_range:
-                if not is_auth_valid():
-                    if log_callback:
-                        log_callback("登录失效，中止抓取")
-                    return success_count, failures
+                auth_check_count += 1
+                if auth_check_count >= auth_check_interval:
+                    auth_check_count = 0
+                    if not is_auth_valid():
+                        if log_callback:
+                            log_callback("登录失效，中止抓取")
+                        failures.append((mname, date_str, cons_no, "登录失效"))
+                        return success_count, failures
                 query_headers = _build_headers(cookies, TYPE3_QUERY_URL)
                 try:
                     query_payload = {
@@ -151,6 +157,6 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
                     failures.append((mname, date_str, cons_no, str(e)))
                     if log_callback:
                         log_callback(f"  {date_str} {cons_no} 异常: {e}")
-                time.sleep(0.5)  # 适当间隔
+                time.sleep(0.5)
 
     return success_count, failures

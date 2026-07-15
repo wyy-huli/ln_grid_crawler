@@ -4,6 +4,7 @@ import os
 
 import requests
 from utils.config import AUTH_FILE
+from utils.logger import logger
 
 def is_auth_valid():
     try:
@@ -13,7 +14,6 @@ def is_auth_valid():
             storage = json.load(f)
         cookies = {c['name']: c['value'] for c in storage.get('cookies', [])}
 
-        # 使用一个需要登录才能访问的报表页面
         test_url = (
             "https://pmos.ln.sgcc.com.cn/px-basesystem-reportform/decision/view/form?"
             "viewlet=%25E4%25BF%25A1%25E6%2581%25AF%25E5%258F%2591%25E5%25B8%2583%25E7%258E%25B0%25E8%25B4%25A7%252Flnsnxh_w_dqxtfhyc.frm"
@@ -23,7 +23,6 @@ def is_auth_valid():
         }
         resp = requests.get(test_url, cookies=cookies, headers=headers, allow_redirects=False, timeout=10)
 
-        # 登录有效：返回200（直接显示报表）或302但未跳转到登录页
         if resp.status_code == 200:
             return True
         elif resp.status_code == 302:
@@ -31,6 +30,9 @@ def is_auth_valid():
             if 'login' not in location.lower():
                 return True
         return False
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Auth] 网络异常: {e}")
+        return True
     except Exception as e:
-        print(f"[Auth] 检测异常: {e}")
+        logger.error(f"[Auth] 检测异常: {e}")
         return False

@@ -30,6 +30,34 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(BROWSER_DATA_DIR, exist_ok=True)
 
+def _load_env_file():
+    """加载 .env 文件，优先级（后者覆盖前者）：
+    1. 程序根目录（BASE_DIR，打包后为 exe 目录）—— 默认配置
+    2. 用户数据目录（USER_DATA_DIR，打包后为 %APPDATA%\\LnGridCrawler）—— 用户自定义
+    """
+    env_paths = [
+        os.path.join(BASE_DIR, '.env'),
+        os.path.join(USER_DATA_DIR, '.env'),
+    ]
+    for env_path in env_paths:
+        if os.path.exists(env_path):
+            try:
+                count = 0
+                with open(env_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if '=' in line:
+                            key, value = line.split('=', 1)
+                            os.environ[key.strip()] = value.strip()
+                            count += 1
+                print(f"[CONFIG] 已加载 .env: {env_path} ({count} 项)")
+            except Exception as e:
+                print(f"[CONFIG] 加载 .env 文件失败 ({env_path}): {e}")
+
+_load_env_file()
+
 def _build_database_url():
     """支持通过环境变量切换 MySQL / SQLite。默认 SQLite 保持向后兼容。
 
@@ -57,6 +85,10 @@ DATABASE_URL = _build_database_url()
 def is_mysql():
     """判断当前是否使用 MySQL 数据库。"""
     return DATABASE_URL.startswith('mysql')
+
+# 浏览器是否以无头模式运行（headless=True 不显示浏览器窗口，减少显存占用）
+# 可通过环境变量 GRID_HEADLESS=false 关闭（调试用）
+BROWSER_HEADLESS = os.environ.get('GRID_HEADLESS', 'true').lower() != 'false'
 
 # 普通类型1接口（无下拉）
 SIMPLE_TYPE1_APIS = [    {

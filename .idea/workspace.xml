@@ -4,13 +4,24 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="af2d6044-7373-461b-a43f-582df6973e5d" name="更改" comment="电力交易爬数工具V1.4 优化用户电量数据获取">
+    <list default="true" id="af2d6044-7373-461b-a43f-582df6973e5d" name="更改" comment="电力交易爬数工具V1.5 优化调度任务&amp;数据库切换功能准备">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/auth/auth_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/auth/auth_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/auth/login.py" beforeDir="false" afterPath="$PROJECT_DIR$/auth/login.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/chart_crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/chart_crawler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/contract_crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/contract_crawler.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/post_crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/post_crawler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/retry_scheduler.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/type3_auto.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/type3_auto.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/database/db_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/database/db_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/database/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/database/models.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/installer.iss" beforeDir="false" afterPath="$PROJECT_DIR$/installer.iss" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/job_config.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/scheduler/run_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/run_scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/dialogs.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/utils/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/config.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -247,7 +258,15 @@
       <option name="project" value="LOCAL" />
       <updated>1783260206387</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="电力交易爬数工具V1.4 优化调度任务&amp;数据库切换功能准备">
+      <option name="closed" value="true" />
+      <created>1783866781062</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1783866781062</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -267,6 +286,7 @@
     <MESSAGE value="电力交易爬数工具V1.1 新增接口" />
     <MESSAGE value="电力交易爬数工具V1.1 打包" />
     <MESSAGE value="电力交易爬数工具V1.4 优化用户电量数据获取" />
-    <option name="LAST_COMMIT_MESSAGE" value="电力交易爬数工具V1.4 优化用户电量数据获取" />
+    <MESSAGE value="电力交易爬数工具V1.4 优化调度任务&amp;数据库切换功能准备" />
+    <option name="LAST_COMMIT_MESSAGE" value="电力交易爬数工具V1.4 优化调度任务&amp;数据库切换功能准备" />
   </component>
 </project>

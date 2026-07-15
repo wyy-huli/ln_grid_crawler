@@ -5,6 +5,7 @@ import requests
 from auth.auth_utils import is_auth_valid
 from database.db_manager import upsert_contract_basic, save_contract_daily_data, log_failure
 from utils.config import CONTRACT_CURVE_BASE_URL, CONTRACT_CURVE_DETAIL_URL, AUTH_FILE
+from utils.logger import logger
 
 
 def _build_contract_headers(target_url):
@@ -338,6 +339,51 @@ def parse_curve_data(detail_data, contract_id, log_callback=None):
     return result
 
 
+def fetch_single_contract_data(contract_id, contract_name, month_str, log_callback=None):
+    """
+    抓取单个合同的购方96点数据
+    contract_id: 合同ID
+    contract_name: 合同名称
+    month_str: 'YYYY-MM' 格式
+    返回 (成功数量, 错误信息)，成功时错误信息为None
+    """
+    if not is_auth_valid():
+        error_msg = "登录状态已失效，请重新登录后再执行"
+        if log_callback:
+            log_callback(error_msg)
+        return 0, error_msg
+    
+    if log_callback:
+        log_callback(f"开始抓取合同: {contract_name} ({contract_id})")
+    
+    success_count = 0
+    
+    try:
+        detail_data = fetch_contract_detail(contract_id, month_str, log_callback)
+        daily_data_list = parse_curve_data(detail_data, contract_id, log_callback)
+        
+        for daily_data in daily_data_list:
+            save_contract_daily_data(
+                contract_id=contract_id,
+                curve_date_str=daily_data['curve_date'],
+                electricity_data=daily_data['electricity_data'],
+                price_data=daily_data['price_data'],
+                log_callback=log_callback
+            )
+            success_count += 1
+        
+        if log_callback:
+            log_callback(f"合同 {contract_name} ({contract_id}) 处理完成，共 {len(daily_data_list)} 天")
+        
+        return success_count, None
+    
+    except Exception as e:
+        error_msg = str(e)
+        if log_callback:
+            log_callback(f"合同 {contract_name} ({contract_id}) 处理失败: {error_msg}")
+        return 0, error_msg
+
+
 def fetch_month_contract_data(month_str, log_callback=None):
     """
     抓取指定月份所有合同的购方96点数据
@@ -358,8 +404,8 @@ def fetch_month_contract_data(month_str, log_callback=None):
         return 0, [("合同列表", str(e))]
     
     for contract_item in contract_list:
-        # 使用 contractId 作为合同ID
         contract_id = contract_item.get('contractId', '')
+        contract_name = contract_item.get('contractName', contract_id)
         if not contract_id:
             continue
         
@@ -381,12 +427,12 @@ def fetch_month_contract_data(month_str, log_callback=None):
                 success_count += 1
             
             if log_callback:
-                log_callback(f"  合同 {contract_id} 处理完成，共 {len(daily_data_list)} 天")
+                log_callback(f"  合同 {contract_name} ({contract_id}) 处理完成，共 {len(daily_data_list)} 天")
         
         except Exception as e:
-            failures.append((contract_id, str(e)))
+            failures.append((contract_name, contract_id, str(e)))
             if log_callback:
-                log_callback(f"  合同 {contract_id} 处理失败: {e}")
+                log_callback(f"  合同 {contract_name} ({contract_id}) 处理失败: {e}")
         
         time.sleep(0.5)
     
@@ -395,10 +441,10 @@ def fetch_month_contract_data(month_str, log_callback=None):
 
 if __name__ == '__main__':
     month = datetime.datetime.now().strftime('%Y-%m')
-    print(f"测试抓取 {month} 月份合同数据...")
+    logger.info(f"测试抓取 {month} 月份合同数据...")
     success, fails = fetch_month_contract_data(month, log_callback=print)
-    print(f"抓取完成，成功 {success} 条，失败 {len(fails)} 条")
+    logger.error(f"抓取完成，成功 {success} 条，失败 {len(fails)} 条")
     if fails:
-        print("失败列表:")
+        logger.error("失败列表:")
         for f in fails:
-            print(f"  {f}")
+            logger.info(f"  {f}")

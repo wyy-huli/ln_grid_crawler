@@ -29,6 +29,7 @@ browser_data/
 
 # Auth
 auth.json
+.env
 
 # Spec
 *.spec

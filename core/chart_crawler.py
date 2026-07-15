@@ -1,6 +1,7 @@
 # core/chart_crawler.py
 import datetime
 import os
+import traceback
 from playwright.sync_api import sync_playwright
 from auth.auth_utils import is_auth_valid
 from database.db_manager import (
@@ -14,7 +15,9 @@ from utils.config import (
     TYPE2_APIS,
     REALTIME_REPORT_URL,
     AUTH_FILE,
+    BROWSER_HEADLESS,
 )
+from utils.logger import logger
 
 
 def run_simple_type1(api_cfg, manual_date=None):
@@ -36,10 +39,11 @@ def run_simple_type1(api_cfg, manual_date=None):
         ).isoformat()
 
     captured = []
+    context = None
     with sync_playwright() as p:
         browser = p.chromium.launch(
             channel="chrome",
-            headless=False,
+            headless=BROWSER_HEADLESS,
             args=["--disable-blink-features=AutomationControlled"],
         )
         try:
@@ -78,33 +82,34 @@ def run_simple_type1(api_cfg, manual_date=None):
                     d["x"] = d["x"][:5]
                 captured.extend(data)
             else:
-                print(
+                logger.warning(
                     f"[{api_name}] 标题不匹配，期待 {api_cfg['title_text']}，"
                     f"实际 {j['chartAttr']['title']['text']}"
                 )
         except Exception as e:
-            print(f"[{api_name}] 抓取异常: {e}")
+            logger.error(f"[{api_name}] 抓取异常: {e}")
             try:
                 log_failure(api_cfg["api_code"], str(e))
             except Exception as le:
-                print(f"[{api_name}] log_failure 异常（吞掉）: {le}")
+                logger.error(f"[{api_name}] log_failure 异常（吞掉）: {le}")
             return False
         finally:
             # close 失败不能抛出，否则会掩盖原始异常并影响 worker 线程状态
             try:
-                context.close()
+                if context is not None:
+                    context.close()
             except Exception as ce:
-                print(f"[{api_name}] context.close 异常（吞掉）: {ce}")
+                logger.error(f"[{api_name}] context.close 异常（吞掉）: {ce}")
             try:
                 browser.close()
             except Exception as be:
-                print(f"[{api_name}] browser.close 异常（吞掉）: {be}")
+                logger.error(f"[{api_name}] browser.close 异常（吞掉）: {be}")
 
     if captured:
         try:
             save_type1_batch(api_cfg["api_code"], api_name, target_date, captured)
         except Exception as e:
-            print(f"[{api_name}] save_type1_batch 异常: {e}")
+            logger.error(f"[{api_name}] save_type1_batch 异常: {e}")
             try:
                 log_failure(api_cfg["api_code"], str(e))
             except Exception:
@@ -131,10 +136,11 @@ def run_dropdown_group(group_cfg, manual_date=None):
         ).isoformat()
 
     captured = {opt["api_code"]: [] for opt in group_cfg["options"]}
+    context = None
     with sync_playwright() as p:
         browser = p.chromium.launch(
             channel="chrome",
-            headless=False,
+            headless=BROWSER_HEADLESS,
             args=["--disable-blink-features=AutomationControlled"],
         )
         try:
@@ -209,15 +215,15 @@ def run_dropdown_group(group_cfg, manual_date=None):
                         for d in data:
                             d["x"] = d["x"][:5]
                         captured[opt["api_code"]].extend(data)
-                        print(f"[{group_name}] {api_name} 捕获 {len(data)} 条")
+                        logger.info(f"[{group_name}] {api_name} 捕获 {len(data)} 条")
                     else:
-                        print(f"[{group_name}] {api_name} 响应中无数据")
+                        logger.info(f"[{group_name}] {api_name} 响应中无数据")
                         log_failure(opt["api_code"], "empty_response")
                 except Exception as e:
-                    print(f"[{group_name}] {api_name} 失败: {e}")
+                    logger.error(f"[{group_name}] {api_name} 失败: {e}")
                     log_failure(opt["api_code"], str(e))
         except Exception as e:
-            print(f"[{group_name}] 整体异常: {e}")
+            logger.error(f"[{group_name}] 整体异常: {e}")
             for opt in group_cfg["options"]:
                 try:
                     log_failure(opt["api_code"], f"group_error: {e}")
@@ -226,13 +232,14 @@ def run_dropdown_group(group_cfg, manual_date=None):
             return False
         finally:
             try:
-                context.close()
+                if context is not None:
+                    context.close()
             except Exception as ce:
-                print(f"[{group_name}] context.close 异常（吞掉）: {ce}")
+                logger.error(f"[{group_name}] context.close 异常（吞掉）: {ce}")
             try:
                 browser.close()
             except Exception as be:
-                print(f"[{group_name}] browser.close 异常（吞掉）: {be}")
+                logger.error(f"[{group_name}] browser.close 异常（吞掉）: {be}")
 
     any_success = False
     for opt in group_cfg["options"]:
@@ -249,19 +256,25 @@ def run_dropdown_group(group_cfg, manual_date=None):
     return any_success
 
 
-def run_type2():
-    """实时出清参考信息（每15分钟调用），返回 True/False"""
-    print("[实时] run_type2 开始执行...")
-    today = datetime.date.today().isoformat()
+def run_type2(manual_date=None):
+    """实时出清参考信息（每15分钟调用），返回 True/False
+    manual_date: 'YYYY-MM-DD' 可选，用于手动补抓指定日期；默认按当天
+    """
+    logger.info("[实时] run_type2 开始执行...")
+    if manual_date:
+        target_date = manual_date
+    else:
+        target_date = datetime.date.today().isoformat()
     if not is_auth_valid():
         log_failure("realtime_clearing", "auth_expired")
         return False
 
     captured = []
+    context = None
     with sync_playwright() as p:
         browser = p.chromium.launch(
             channel="chrome",
-            headless=False,
+            headless=BROWSER_HEADLESS,
             args=["--disable-blink-features=AutomationControlled"],
         )
         try:
@@ -276,7 +289,7 @@ def run_type2():
             page = context.new_page()
             page.goto(REALTIME_REPORT_URL, timeout=30000)
             page.wait_for_selector("input.fr-trigger-texteditor", timeout=15000)
-            page.locator("input.fr-trigger-texteditor").fill(today)
+            page.locator("input.fr-trigger-texteditor").fill(target_date)
             page.keyboard.press("Tab")
             page.wait_for_timeout(500)
 
@@ -295,27 +308,28 @@ def run_type2():
                     d["x"] = d["x"][:5]
                 captured.extend(data)
         except Exception as e:
-            print(f"[实时] 抓取异常: {e}")
+            logger.error(f"[实时] 抓取异常: {e}")
             try:
                 log_failure("realtime_clearing", str(e))
             except Exception as le:
-                print(f"[实时] log_failure 异常（吞掉）: {le}")
+                logger.error(f"[实时] log_failure 异常（吞掉）: {le}")
             return False
         finally:
             try:
-                context.close()
+                if context is not None:
+                    context.close()
             except Exception as ce:
-                print(f"[实时] context.close 异常（吞掉）: {ce}")
+                logger.error(f"[实时] context.close 异常（吞掉）: {ce}")
             try:
                 browser.close()
             except Exception as be:
-                print(f"[实时] browser.close 异常（吞掉）: {be}")
+                logger.error(f"[实时] browser.close 异常（吞掉）: {be}")
 
     if captured:
         try:
-            upsert_type2_data("realtime_clearing", "实时出清参考信息", today, captured)
+            upsert_type2_data("realtime_clearing", "实时出清参考信息", target_date, captured)
         except Exception as e:
-            print(f"[实时] upsert_type2_data 异常: {e}")
+            logger.error(f"[实时] upsert_type2_data 异常: {e}")
             try:
                 log_failure("realtime_clearing", str(e))
             except Exception:
@@ -344,13 +358,13 @@ def manual_fetch(api_code, date_str=None):
                 return run_dropdown_group(group, manual_date=date_str)
     # 类型2
     if api_code == "realtime_clearing":
-        return run_type2()
-    print(f"未找到接口: {api_code}")
+        return run_type2(manual_date=date_str)
+    logger.info(f"未找到接口: {api_code}")
     return False
 
 
 # 测试入口（可选，直接运行本文件测试）
 if __name__ == "__main__":
-    print(">>> 测试手动补抓...")
+    logger.info(">>> 测试手动补抓...")
     # 修改为你想测试的 api_code
     manual_fetch("sys_load_w", None)
