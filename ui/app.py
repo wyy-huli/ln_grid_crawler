@@ -54,6 +54,14 @@ def main():
 
     window = sg.Window('【镁时镁刻】电力数据采集工具', layout, finalize=True)
 
+    # sg.Output 在 finalize 时替换了 sys.stdout，需要更新 logger handler 的 stream 引用
+    # 只更新纯 StreamHandler（排除 FileHandler 及其子类如 RotatingFileHandler）
+    import logging
+    for handler in logging.getLogger('grid_crawler').handlers:
+        if type(handler) is logging.StreamHandler:
+            if handler.stream is not sys.stdout:
+                handler.setStream(sys.stdout)
+
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, '退出'):

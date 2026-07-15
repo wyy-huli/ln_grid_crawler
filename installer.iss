@@ -1,6 +1,6 @@
 ; 镁时镁刻电力数据采集工具 安装脚本
 #define MyAppName "镁时镁刻电力数据采集工具"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "镁时镁刻"
 #define MyAppExeName "电力数据采集工具.exe"
 

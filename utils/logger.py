@@ -2,6 +2,7 @@
 # utils/logger.py
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 from utils.config import DATA_DIR
 
@@ -20,8 +21,8 @@ formatter = logging.Formatter(
 logger = logging.getLogger('grid_crawler')
 logger.setLevel(logging.DEBUG)
 
-# 控制台 handler（INFO 级别）
-console_handler = logging.StreamHandler()
+# 控制台 handler（INFO 级别）——输出到 sys.stdout，以便 PySimpleGUI 的 sg.Output 能捕获
+console_handler = logging.StreamHandler(stream=sys.stdout)
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
 

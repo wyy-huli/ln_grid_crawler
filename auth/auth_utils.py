@@ -32,7 +32,7 @@ def is_auth_valid():
         return False
     except requests.exceptions.RequestException as e:
         logger.error(f"[Auth] 网络异常: {e}")
-        return True
+        return False
     except Exception as e:
         logger.error(f"[Auth] 检测异常: {e}")
         return False

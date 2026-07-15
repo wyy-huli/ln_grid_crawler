@@ -21,8 +21,15 @@ def _get_cookies_from_auth():
         return {}
 
 def _playwright_fetch_type4():
+    """Type4机组状态抓取核心逻辑"""
+    from datetime import date, timedelta
+
     captured_data = []
     context = None
+    t_minus_one = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+    logger.info(f"[机组状态] 开始抓取: 接口={TYPE4_URL}, 日期={t_minus_one}")
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
             channel="chrome",
@@ -66,8 +73,6 @@ def _playwright_fetch_type4():
             page.wait_for_timeout(5000)
 
             # ========== 填写 T-1 日期 ==========
-            from datetime import date, timedelta
-            t_minus_one = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
             date_input = page.locator("input.el-input__inner[placeholder='请选择日期']")
             date_input.wait_for(state="visible", timeout=10000)
             date_input.fill(t_minus_one)
@@ -94,14 +99,20 @@ def _playwright_fetch_type4():
             if data.get("status") == 0:
                 obj_list = data.get("data", {}).get("objectList", {}).get("list", [])
                 captured_data = obj_list
-                logger.info(f"[类型4] 成功捕获 {len(captured_data)} 条记录")
+                if captured_data:
+                    logger.info(f"[机组状态] 抓取成功: 捕获 {len(captured_data)} 条数据")
+                else:
+                    logger.warning(f"[机组状态] 抓取成功但无数据: 接口={TYPE4_URL}, 日期={t_minus_one}")
+            else:
+                logger.error(f"[机组状态] 接口返回异常: 接口={TYPE4_URL}, status={data.get('status')}, msg={data.get('msg', 'N/A')}")
 
         except Exception as e:
-            logger.error(f"[类型4] 异常: {e}")
+            logger.error(f"[机组状态] 抓取失败: 接口={TYPE4_URL}, 日期={t_minus_one}, 原因={type(e).__name__}: {e}")
             try:
                 page.screenshot(path="type4_error.png")
-            except Exception:
-                pass
+                logger.info("[机组状态] 已保存错误截图: type4_error.png")
+            except Exception as se:
+                logger.warning(f"[机组状态] 截图失败: {se}")
         finally:
             try:
                 if context is not None:
@@ -120,16 +131,16 @@ def _playwright_fetch_type4():
 
 def run_type4():
     """类型4入口，无数据时不重试"""
-    logger.info("开始执行类型4抓取（机组状态）")
     if not is_auth_valid():
+        logger.error("[机组状态] 抓取失败: 认证已过期，请重新登录")
         log_failure("type4_unit_status", "auth_expired")
         return False
 
     success = _playwright_fetch_type4()
     if not success:
         # 无数据或失败，仅记录日志，不触发重试
+        logger.warning("[机组状态] 抓取结束: 无数据或失败")
         log_failure("type4_unit_status", "no_data_or_failed")
-        logger.warning("类型4抓取结束：无数据或失败")
     return success
 if __name__ == '__main__':
     run_type4()

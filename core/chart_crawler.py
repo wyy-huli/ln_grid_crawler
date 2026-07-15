@@ -27,16 +27,17 @@ def run_simple_type1(api_cfg, manual_date=None):
     返回 True 表示成功入库，False 表示失败
     """
     api_name = api_cfg.get("api_name", api_cfg["api_code"])
-    if not is_auth_valid():
-        log_failure(api_cfg["api_code"], "auth_expired")
-        return False
+    api_code = api_cfg["api_code"]
+    target_date = manual_date or (
+        datetime.date.today() + datetime.timedelta(days=api_cfg["date_offset"])
+    ).isoformat()
 
-    if manual_date:
-        target_date = manual_date
-    else:
-        target_date = (
-            datetime.date.today() + datetime.timedelta(days=api_cfg["date_offset"])
-        ).isoformat()
+    logger.info(f"[{api_name}] 开始抓取: 接口={api_code}, 日期={target_date}")
+
+    if not is_auth_valid():
+        logger.error(f"[{api_name}] 登录状态已失效")
+        log_failure(api_code, "auth_expired")
+        return False
 
     captured = []
     context = None
@@ -107,33 +108,35 @@ def run_simple_type1(api_cfg, manual_date=None):
 
     if captured:
         try:
-            save_type1_batch(api_cfg["api_code"], api_name, target_date, captured)
+            save_type1_batch(api_code, api_name, target_date, captured)
+            logger.info(f"[{api_name}] 抓取成功: 捕获 {len(captured)} 条数据")
         except Exception as e:
             logger.error(f"[{api_name}] save_type1_batch 异常: {e}")
             try:
-                log_failure(api_cfg["api_code"], str(e))
+                log_failure(api_code, str(e))
             except Exception:
                 pass
             return False
         return True
     else:
-        log_failure(api_cfg["api_code"], "no_data")
+        logger.warning(f"[{api_name}] 抓取失败: 无数据返回")
+        log_failure(api_code, "no_data")
         return False
 
 
 def run_dropdown_group(group_cfg, manual_date=None):
     group_name = group_cfg["group_name"]
+    target_date = manual_date or (
+        datetime.date.today() + datetime.timedelta(days=group_cfg["date_offset"])
+    ).isoformat()
+
+    logger.info(f"[{group_name}] 开始抓取下拉组: 日期={target_date}")
+
     if not is_auth_valid():
+        logger.error(f"[{group_name}] 登录状态已失效")
         for opt in group_cfg["options"]:
             log_failure(opt["api_code"], "auth_expired")
         return False
-
-    if manual_date:
-        target_date = manual_date
-    else:
-        target_date = (
-            datetime.date.today() + datetime.timedelta(days=group_cfg["date_offset"])
-        ).isoformat()
 
     captured = {opt["api_code"]: [] for opt in group_cfg["options"]}
     context = None
@@ -242,6 +245,8 @@ def run_dropdown_group(group_cfg, manual_date=None):
                 logger.error(f"[{group_name}] browser.close 异常（吞掉）: {be}")
 
     any_success = False
+    success_count = 0
+    fail_count = 0
     for opt in group_cfg["options"]:
         if captured[opt["api_code"]]:
             save_type1_batch(
@@ -251,8 +256,16 @@ def run_dropdown_group(group_cfg, manual_date=None):
                 captured[opt["api_code"]],
             )
             any_success = True
+            success_count += 1
         else:
+            logger.warning(f"[{group_name}] {opt.get('api_name', opt['api_code'])} 无数据")
             log_failure(opt["api_code"], "no_data")
+            fail_count += 1
+
+    if any_success:
+        logger.info(f"[{group_name}] 抓取完成: 成功 {success_count} 个接口, 失败 {fail_count} 个接口")
+    else:
+        logger.error(f"[{group_name}] 抓取失败: 所有接口均无数据")
     return any_success
 
 
@@ -260,12 +273,11 @@ def run_type2(manual_date=None):
     """实时出清参考信息（每15分钟调用），返回 True/False
     manual_date: 'YYYY-MM-DD' 可选，用于手动补抓指定日期；默认按当天
     """
-    logger.info("[实时] run_type2 开始执行...")
-    if manual_date:
-        target_date = manual_date
-    else:
-        target_date = datetime.date.today().isoformat()
+    target_date = manual_date or datetime.date.today().isoformat()
+    logger.info(f"[实时出清] 开始抓取: 日期={target_date}")
+
     if not is_auth_valid():
+        logger.error("[实时出清] 登录状态已失效")
         log_failure("realtime_clearing", "auth_expired")
         return False
 
@@ -308,28 +320,29 @@ def run_type2(manual_date=None):
                     d["x"] = d["x"][:5]
                 captured.extend(data)
         except Exception as e:
-            logger.error(f"[实时] 抓取异常: {e}")
+            logger.error(f"[实时出清] 抓取异常: {e}")
             try:
                 log_failure("realtime_clearing", str(e))
             except Exception as le:
-                logger.error(f"[实时] log_failure 异常（吞掉）: {le}")
+                logger.error(f"[实时出清] log_failure 异常（吞掉）: {le}")
             return False
         finally:
             try:
                 if context is not None:
                     context.close()
             except Exception as ce:
-                logger.error(f"[实时] context.close 异常（吞掉）: {ce}")
+                logger.error(f"[实时出清] context.close 异常（吞掉）: {ce}")
             try:
                 browser.close()
             except Exception as be:
-                logger.error(f"[实时] browser.close 异常（吞掉）: {be}")
+                logger.error(f"[实时出清] browser.close 异常（吞掉）: {be}")
 
     if captured:
         try:
             upsert_type2_data("realtime_clearing", "实时出清参考信息", target_date, captured)
+            logger.info(f"[实时出清] 抓取成功: 捕获 {len(captured)} 条数据")
         except Exception as e:
-            logger.error(f"[实时] upsert_type2_data 异常: {e}")
+            logger.error(f"[实时出清] 存储异常: {e}")
             try:
                 log_failure("realtime_clearing", str(e))
             except Exception:
@@ -337,6 +350,7 @@ def run_type2(manual_date=None):
             return False
         return True
     else:
+        logger.warning(f"[实时出清] 抓取失败: 无数据返回")
         log_failure("realtime_clearing", "no_data")
         return False
 
@@ -347,19 +361,36 @@ def manual_fetch(api_code, date_str=None):
     api_code: 接口标识
     date_str: 可选，格式 'YYYY-MM-DD'，不传则按配置偏移量（默认当天）
     """
+    logger.info(f"[手动补抓] 开始执行: 接口={api_code}, 日期={date_str or '默认'}")
+
     # 查找普通类型1
     for api in SIMPLE_TYPE1_APIS:
         if api["api_code"] == api_code:
-            return run_simple_type1(api, manual_date=date_str)
+            result = run_simple_type1(api, manual_date=date_str)
+            if result:
+                logger.info(f"[手动补抓] 成功: 接口={api_code}")
+            else:
+                logger.error(f"[手动补抓] 失败: 接口={api_code}")
+            return result
     # 查找下拉组（补抓整个组）
     for group in DROP_GROUPS:
         for opt in group["options"]:
             if opt["api_code"] == api_code:
-                return run_dropdown_group(group, manual_date=date_str)
+                result = run_dropdown_group(group, manual_date=date_str)
+                if result:
+                    logger.info(f"[手动补抓] 成功: 接口={api_code} (下拉组={group['group_name']})")
+                else:
+                    logger.error(f"[手动补抓] 失败: 接口={api_code} (下拉组={group['group_name']})")
+                return result
     # 类型2
     if api_code == "realtime_clearing":
-        return run_type2(manual_date=date_str)
-    logger.info(f"未找到接口: {api_code}")
+        result = run_type2(manual_date=date_str)
+        if result:
+            logger.info(f"[手动补抓] 成功: 接口={api_code}")
+        else:
+            logger.error(f"[手动补抓] 失败: 接口={api_code}")
+        return result
+    logger.error(f"[手动补抓] 未找到接口: {api_code}")
     return False
 
 
