@@ -87,8 +87,8 @@ def is_mysql():
     return DATABASE_URL.startswith('mysql')
 
 # 浏览器是否以无头模式运行（headless=True 不显示浏览器窗口，减少显存占用）
-# 可通过环境变量 GRID_HEADLESS=false 关闭（调试用）
-BROWSER_HEADLESS = os.environ.get('GRID_HEADLESS', 'true').lower() != 'false'
+# 可通过环境变量 GRID_HEADLESS=true 开启无头模式
+BROWSER_HEADLESS = os.environ.get('GRID_HEADLESS', 'false').lower() == 'true'
 
 # 普通类型1接口（无下拉）
 SIMPLE_TYPE1_APIS = [    {

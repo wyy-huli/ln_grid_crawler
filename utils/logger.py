@@ -4,6 +4,12 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
+
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, 'w', encoding='utf-8', errors='ignore')
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, 'w', encoding='utf-8', errors='ignore')
+
 from utils.config import DATA_DIR
 
 LOG_DIR = os.path.join(DATA_DIR, 'logs')
