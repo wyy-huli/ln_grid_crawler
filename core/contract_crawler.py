@@ -3,6 +3,7 @@ import time
 import datetime
 import requests
 from auth.auth_utils import is_auth_valid
+from auth.tenant_context import get_current_dept_id
 from database.db_manager import upsert_contract_basic, save_contract_daily_data, log_failure
 from utils.config import CONTRACT_CURVE_BASE_URL, CONTRACT_CURVE_DETAIL_URL, AUTH_FILE
 from utils.logger import logger
@@ -356,6 +357,18 @@ def fetch_single_contract_data(contract_id, contract_name, month_str, log_callba
     if log_callback:
         log_callback(f"开始抓取合同: {contract_name} ({contract_id})")
     
+    # 同步合同基础信息（带上当前租户ID）
+    current_dept_id = get_current_dept_id()
+    if current_dept_id and current_dept_id != 'UNKNOWN':
+        try:
+            upsert_contract_basic({
+                'contract_id': contract_id,
+                'contract_name': contract_name,
+                'dept_id': current_dept_id,
+            })
+        except Exception as e:
+            logger.warning(f"同步合同基础信息失败: {e}")
+    
     success_count = 0
     
     try:
@@ -384,38 +397,68 @@ def fetch_single_contract_data(contract_id, contract_name, month_str, log_callba
         return 0, error_msg
 
 
-def fetch_month_contract_data(month_str, log_callback=None):
+def fetch_month_contract_data(month_str, log_callback=None, stop_event=None):
     """
     抓取指定月份所有合同的购方96点数据
     month_str: 'YYYY-MM' 格式
+    stop_event: threading.Event，外部设置后函数在当前合同完成后退出
     返回 (成功数量, 失败列表)
     """
     if not is_auth_valid():
         if log_callback:
             log_callback("登录状态已失效，请重新登录后再执行")
         return 0, ["auth_expired"]
-    
+
     success_count = 0
     failures = []
-    
+
     try:
         contract_list = fetch_contract_list(month_str, log_callback)
     except Exception as e:
         return 0, [("合同列表", str(e))]
-    
+
+    # 按 contract_id 去重，保留第一个出现的合同
+    seen_ids = set()
+    unique_contracts = []
+    duplicate_count = 0
     for contract_item in contract_list:
+        cid = contract_item.get('contractId', '')
+        if not cid:
+            continue
+        if cid in seen_ids:
+            duplicate_count += 1
+            continue
+        seen_ids.add(cid)
+        unique_contracts.append(contract_item)
+
+    if duplicate_count > 0:
+        logger.info(
+            f"[合同去重] 接口返回 {len(contract_list)} 条，按 contract_id 去重后 {len(unique_contracts)} 条，"
+            f"过滤掉 {duplicate_count} 条重复"
+        )
+
+    for contract_item in unique_contracts:
+        # 检查取消信号（合同间检查点）
+        if stop_event is not None and stop_event.is_set():
+            if log_callback:
+                log_callback("收到取消信号，停止抓取")
+            return success_count, failures
+
         contract_id = contract_item.get('contractId', '')
         contract_name = contract_item.get('contractName', contract_id)
         if not contract_id:
             continue
-        
+
         try:
             contract_basic = parse_contract_basic(contract_item)
+            current_dept_id = get_current_dept_id()
+            if current_dept_id and current_dept_id != 'UNKNOWN':
+                contract_basic['dept_id'] = current_dept_id
             upsert_contract_basic(contract_basic)
-            
+
             detail_data = fetch_contract_detail(contract_id, month_str, log_callback)
             daily_data_list = parse_curve_data(detail_data, contract_id, log_callback)
-            
+
             for daily_data in daily_data_list:
                 save_contract_daily_data(
                     contract_id=contract_id,
@@ -425,17 +468,17 @@ def fetch_month_contract_data(month_str, log_callback=None):
                     log_callback=log_callback
                 )
                 success_count += 1
-            
+
             if log_callback:
                 log_callback(f"  合同 {contract_name} ({contract_id}) 处理完成，共 {len(daily_data_list)} 天")
-        
+
         except Exception as e:
             failures.append((contract_name, contract_id, str(e)))
             if log_callback:
                 log_callback(f"  合同 {contract_name} ({contract_id}) 处理失败: {e}")
-        
+
         time.sleep(0.5)
-    
+
     return success_count, failures
 
 

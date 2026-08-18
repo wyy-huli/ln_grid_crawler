@@ -4,6 +4,7 @@ import time
 import datetime
 import requests
 from auth.auth_utils import is_auth_valid
+from auth.tenant_context import get_current_dept_id
 from database.db_manager import save_type3_query
 from utils.config import TYPE3_MEMBER_URL, TYPE3_CONS_URL, TYPE3_QUERY_URL, AUTH_FILE
 
@@ -31,11 +32,12 @@ def _build_headers(cookies, target_url):
     }
     return headers
 
-def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=None):
+def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=None, stop_event=None):
     """
     自动抓取所有市场主体和用电编号的数据，日期范围为 [start_date, end_date]。
     progress_callback(current, total, message): 用于更新进度。
     log_callback(message): 用于输出日志。
+    stop_event: threading.Event，外部设置后函数在当前请求完成后退出。
     返回成功抓取次数和失败列表。
     """
     if not is_auth_valid():
@@ -80,6 +82,12 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
         d += datetime.timedelta(days=1)
 
     for idx_m, member in enumerate(members):
+        # 检查取消信号（主体间检查点）
+        if stop_event is not None and stop_event.is_set():
+            if log_callback:
+                log_callback("收到取消信号，停止抓取")
+            return success_count, failures
+
         mid = member['powerMembersId']
         mname = member['powerMembersName']
         if log_callback:
@@ -118,7 +126,19 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
 
         # 3. 遍历日期和用电编号
         for cons_no in cons_list:
+            # 检查取消信号（用电编号间检查点）
+            if stop_event is not None and stop_event.is_set():
+                if log_callback:
+                    log_callback("收到取消信号，停止抓取")
+                return success_count, failures
+
             for date_str in date_range:
+                # 检查取消信号（日期间检查点，最频繁）
+                if stop_event is not None and stop_event.is_set():
+                    if log_callback:
+                        log_callback("收到取消信号，停止抓取")
+                    return success_count, failures
+
                 auth_check_count += 1
                 if auth_check_count >= auth_check_interval:
                     auth_check_count = 0
@@ -141,7 +161,7 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
                     if resp.status_code == 200:
                         result = resp.json()
                         if result.get('status') == 0:
-                            save_type3_query(date_str, cons_no, mid, json.dumps(result), mname)
+                            save_type3_query(date_str, cons_no, mid, json.dumps(result), mname, dept_id=get_current_dept_id())
                             success_count += 1
                             if log_callback:
                                 log_callback(f"  {date_str} {cons_no} 保存成功")
@@ -150,7 +170,8 @@ def auto_fetch_type3(start_date, end_date, progress_callback=None, log_callback=
                             if log_callback:
                                 log_callback(f"  {date_str} {cons_no} 查询失败: {result.get('message')}")
                     else:
-                        failures.append((mname, date_str, cons_no, str(e)))
+                        # 修复: 原代码引用未定义变量 e，改为直接使用 HTTP 状态码
+                        failures.append((mname, date_str, cons_no, f"HTTP {resp.status_code}"))
                         if log_callback:
                             log_callback(f"  {date_str} {cons_no} HTTP {resp.status_code}")
                 except Exception as e:

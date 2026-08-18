@@ -1,6 +1,7 @@
 # ui/dialogs.py
 import threading
 import time
+import queue
 
 import PySimpleGUI as sg
 import datetime
@@ -10,7 +11,9 @@ import requests
 from core.type3_auto import auto_fetch_type3
 from utils.config import TYPE3_MEMBER_URL, TYPE3_CONS_URL, TYPE3_QUERY_URL, AUTH_FILE
 from auth.auth_utils import is_auth_valid
+from auth.tenant_context import get_current_dept_id
 from database.db_manager import save_type3_query
+from utils.logger import logger, drain_ui_log
 
 
 
@@ -108,7 +111,8 @@ def type3_query_dialog():
         [sg.Button('查询'), sg.Button('取消')],
         [sg.Text('', key='-RESULT-', size=(50, 1))]
     ]
-    window = sg.Window('用电数据查询', layout, modal=True)
+    window = sg.Window('用电数据查询', layout, modal=True,
+                       size=(620, 280), resizable=True)
 
     while True:
         event, values = window.read()
@@ -164,7 +168,7 @@ def type3_query_dialog():
                 if resp.status_code == 200:
                     result = resp.json()
                     if result.get('status') == 0:
-                        save_type3_query(info_date, cons_no, mid, json.dumps(result), member)
+                        save_type3_query(info_date, cons_no, mid, json.dumps(result), member, dept_id=get_current_dept_id())
                         window['-RESULT-'].update('查询成功，数据已保存')
                     else:
                         show_error('查询失败', result.get('message', '未知错误'))
@@ -182,29 +186,56 @@ def auto_type3_dialog():
          sg.CalendarButton('选择', target='-START-', format='%Y-%m-%d')],
         [sg.Text('结束日期:'), sg.Input(datetime.date.today().isoformat(), key='-END-', size=(12,1)),
          sg.CalendarButton('选择', target='-END-', format='%Y-%m-%d')],
-        [sg.Button('开始抓取'), sg.Button('取消')],
-        [sg.Output(size=(70, 15), key='-OUTPUT-')],
+        [sg.Button('开始抓取'), sg.Button('取消抓取'), sg.Button('关闭')],
+        [sg.Output(size=(70, 15), key='-OUTPUT-', expand_x=True, expand_y=True)],
     ]
-    window = sg.Window('批量用电数据抓取', layout, modal=True, finalize=True)
+    window = sg.Window('批量用电数据抓取', layout, modal=True, finalize=True,
+                       size=(800, 550), resizable=True)
 
     fetching = False  # 防止重复点击
+    stop_event = threading.Event()
+    log_q = queue.Queue()  # 子线程日志队列，主线程 drain 后更新 sg.Output
+
+    def log_callback(msg):
+        """子线程调用：把日志放入队列，不直接写 sg.Output"""
+        log_q.put(msg)
+
+    def drain_log():
+        """主线程调用：批量取出队列日志，更新 sg.Output"""
+        lines = []
+        for _ in range(200):
+            try:
+                lines.append(log_q.get_nowait())
+            except queue.Empty:
+                break
+        if lines:
+            window['-OUTPUT-'].update(value='\n'.join(lines) + '\n', append=True)
 
     def run_fetch(start, end):
         nonlocal fetching
-        print(f"开始抓取：{start} 至 {end}")
-        success, fails = auto_fetch_type3(start, end)
-        print(f"抓取完成，成功 {success} 条，失败 {len(fails)} 条")
+        log_callback(f"开始抓取：{start} 至 {end}")
+        success, fails = auto_fetch_type3(start, end,
+                                          log_callback=log_callback,
+                                          stop_event=stop_event)
+        if stop_event.is_set():
+            log_callback(f"抓取已取消，成功 {success} 条，失败 {len(fails)} 条")
+        else:
+            log_callback(f"抓取完成，成功 {success} 条，失败 {len(fails)} 条")
         if fails:
-            print("失败列表:")
+            log_callback("失败列表:")
             for f in fails:
-                print(f"  {f}")
+                log_callback(f"  {f}")
         fetching = False
+        stop_event.clear()
 
     while True:
         event, values = window.read(timeout=100)
-        if event in (sg.WIN_CLOSED, '取消'):
+        drain_log()
+
+        if event in (sg.WIN_CLOSED, '关闭'):
             if fetching:
-                sg.popup('正在抓取中，无法取消，请等待完成')
+                stop_event.set()
+                # 不强制 break，等子线程检测到 stop_event 后退出
                 continue
             break
         if event == '开始抓取':
@@ -220,8 +251,15 @@ def auto_type3_dialog():
                 sg.popup_error('开始日期不能晚于结束日期')
                 continue
             window['-OUTPUT-'].update('')
+            stop_event.clear()
             fetching = True
             threading.Thread(target=run_fetch, args=(start, end), daemon=True).start()
+        if event == '取消抓取':
+            if fetching:
+                stop_event.set()
+                logger.info('用户已请求取消抓取，等待当前请求完成后退出...')
+            else:
+                sg.popup('当前未在抓取')
     window.close()
 
 def contract_crawler_dialog():
@@ -235,33 +273,57 @@ def contract_crawler_dialog():
     layout = [
         [sg.Text('合同分时曲线数据抓取', font=('微软雅黑', 12))],
         [sg.Text('选择月份:'), sg.Input(current_month, key='-MONTH-', size=(10, 1))],
-        [sg.Button('开始抓取'), sg.Button('取消')],
-        [sg.Output(size=(70, 15), key='-OUTPUT-')],
+        [sg.Button('开始抓取'), sg.Button('取消抓取'), sg.Button('关闭')],
+        [sg.Output(size=(70, 15), key='-OUTPUT-', expand_x=True, expand_y=True)],
     ]
-    window = sg.Window('批量合同数据抓取', layout, modal=True, finalize=True)
+    window = sg.Window('批量合同数据抓取', layout, modal=True, finalize=True,
+                       size=(800, 550), resizable=True)
 
     fetching = False
+    stop_event = threading.Event()
+    log_q = queue.Queue()
+
+    def log_callback(msg):
+        log_q.put(msg)
+
+    def drain_log():
+        lines = []
+        for _ in range(200):
+            try:
+                lines.append(log_q.get_nowait())
+            except queue.Empty:
+                break
+        if lines:
+            window['-OUTPUT-'].update(value='\n'.join(lines) + '\n', append=True)
 
     def run_fetch(month_str):
         nonlocal fetching
-        print(f"开始抓取 {month_str} 月份合同数据...")
+        log_callback(f"开始抓取 {month_str} 月份合同数据...")
         from core.contract_crawler import fetch_month_contract_data
-        success, fails = fetch_month_contract_data(month_str, log_callback=print)
-        print(f"抓取完成，成功 {success} 条，失败 {len(fails)} 条")
+        success, fails = fetch_month_contract_data(month_str,
+                                                    log_callback=log_callback,
+                                                    stop_event=stop_event)
+        if stop_event.is_set():
+            log_callback(f"抓取已取消，成功 {success} 条，失败 {len(fails)} 条")
+        else:
+            log_callback(f"抓取完成，成功 {success} 条，失败 {len(fails)} 条")
         if fails:
-            print("失败列表:")
+            log_callback("失败列表:")
             for f in fails:
                 if len(f) == 3:
-                    print(f"  合同: {f[0]} (ID:{f[1]}) - {f[2]}")
+                    log_callback(f"  合同: {f[0]} (ID:{f[1]}) - {f[2]}")
                 else:
-                    print(f"  {f}")
+                    log_callback(f"  {f}")
         fetching = False
+        stop_event.clear()
 
     while True:
         event, values = window.read(timeout=100)
-        if event in (sg.WIN_CLOSED, '取消'):
+        drain_log()
+
+        if event in (sg.WIN_CLOSED, '关闭'):
             if fetching:
-                sg.popup('正在抓取中，无法取消，请等待完成')
+                stop_event.set()
                 continue
             break
         if event == '开始抓取':
@@ -281,8 +343,15 @@ def contract_crawler_dialog():
                 sg.popup_error('请输入正确的月份格式 (YYYY-MM)')
                 continue
             window['-OUTPUT-'].update('')
+            stop_event.clear()
             fetching = True
             threading.Thread(target=run_fetch, args=(month_str,), daemon=True).start()
+        if event == '取消抓取':
+            if fetching:
+                stop_event.set()
+                logger.info('用户已请求取消抓取，等待当前请求完成后退出...')
+            else:
+                sg.popup('当前未在抓取')
     window.close()
 
 
@@ -299,20 +368,40 @@ def manual_contract_dialog():
         [sg.Text('选择月份:'), sg.Input(current_month, key='-MONTH-', size=(10, 1))],
         [sg.Button('获取合同列表'), sg.Button('抓取选中合同'), sg.Button('取消')],
         [sg.Text('合同列表:')],
-        [sg.Listbox([], key='-CONTRACT-LIST-', size=(70, 10), enable_events=True)],
+        [sg.Listbox([], key='-CONTRACT-LIST-', size=(70, 10), enable_events=True, expand_x=True, expand_y=True)],
         [sg.Text('选中合同:'), sg.Text('', key='-SELECTED-', size=(50, 1))],
-        [sg.Output(size=(70, 10), key='-OUTPUT-')],
+        [sg.Output(size=(70, 10), key='-OUTPUT-', expand_x=True, expand_y=True)],
     ]
-    window = sg.Window('手动合同数据抓取', layout, modal=True, finalize=True)
+    window = sg.Window('手动合同数据抓取', layout, modal=True, finalize=True,
+                       size=(850, 650), resizable=True)
 
     fetching = False
     contract_list_data = []
+    # 【严重1修复】子对话框使用本地日志队列，不共享全局 UI_LOG_QUEUE，
+    # 避免：
+    # 1) 关闭对话框后，主窗口 read 循环 drain 残留日志导致串台
+    # 2) 多个子对话框同时打开（或按序打开）时日志互相干扰
+    local_log_q = queue.Queue()
+
+    def local_log(msg):
+        """子线程专用：把日志放入本地队列，不污染全局 UI_LOG_QUEUE"""
+        local_log_q.put(msg)
+
+    def drain_local_log():
+        """主线程调用：批量取出本地队列日志，安全更新当前对话框的 sg.Output"""
+        lines = []
+        for _ in range(200):
+            try:
+                lines.append(local_log_q.get_nowait())
+            except queue.Empty:
+                break
+        return '\n'.join(lines)
 
     def fetch_contract_list_data(month_str):
         try:
             from core.contract_crawler import fetch_contract_list
-            print(f"正在获取 {month_str} 月份合同列表...")
-            contracts = fetch_contract_list(month_str, log_callback=print)
+            local_log(f"正在获取 {month_str} 月份合同列表...")
+            contracts = fetch_contract_list(month_str, log_callback=local_log)
             result_list = []
             for c in contracts:
                 result_list.append({
@@ -321,21 +410,25 @@ def manual_contract_dialog():
                 })
             window.write_event_value('-CONTRACT-LIST-READY-', result_list)
         except Exception as e:
-            print(f"获取合同列表失败: {e}")
+            local_log(f"获取合同列表失败: {e}")
             window.write_event_value('-CONTRACT-LIST-ERROR-', str(e))
 
     def run_single_fetch(contract_id, contract_name, month_str):
         nonlocal fetching
         from core.contract_crawler import fetch_single_contract_data
-        success, error = fetch_single_contract_data(contract_id, contract_name, month_str, log_callback=print)
+        success, error = fetch_single_contract_data(contract_id, contract_name, month_str, log_callback=local_log)
         if error:
-            print(f"抓取失败: {error}")
+            local_log(f"抓取失败: {error}")
         else:
-            print(f"抓取成功，共 {success} 天数据")
+            local_log(f"抓取成功，共 {success} 天数据")
         window.write_event_value('-FETCH-DONE-', None)
 
     while True:
         event, values = window.read(timeout=100)
+        # 只从本地日志队列取日志，不再 drain 全局 UI_LOG_QUEUE，避免串台
+        log_text = drain_local_log()
+        if log_text:
+            window['-OUTPUT-'].update(value=log_text + '\n', append=True)
         if event in (sg.WIN_CLOSED, '取消'):
             if fetching:
                 sg.popup('正在抓取中，无法取消，请等待完成')
@@ -366,7 +459,7 @@ def manual_contract_dialog():
             contract_list_data = values[event]
             contract_names = [f"{c['contractName']} (ID:{c['contractId']})" for c in contract_list_data]
             window['-CONTRACT-LIST-'].update(values=contract_names)
-            print(f"共获取到 {len(contract_names)} 个合同")
+            local_log(f"共获取到 {len(contract_names)} 个合同")
             fetching = False
 
         if event == '-CONTRACT-LIST-ERROR-':
@@ -405,6 +498,144 @@ def manual_contract_dialog():
             window['-OUTPUT-'].update('')
             fetching = True
             threading.Thread(target=run_single_fetch, args=(contract_id, contract_name, month_str), daemon=True).start()
+
+    window.close()
+
+
+def backfill_dept_dialog():
+    """租户数据回填对话框"""
+    import PySimpleGUI as sg
+    from auth.tenant_context import get_current_dept_id, get_current_dept_name
+    from database.db_manager import list_null_metering_records, list_null_contract_records, backfill_metering_dept, backfill_contract_dept
+    from utils.logger import logger
+
+    current_dept_id = get_current_dept_id()
+    current_dept_name = get_current_dept_name()
+
+    if not current_dept_id or current_dept_id == 'UNKNOWN':
+        sg.popup_error('未检测到当前租户，请先登录！')
+        return
+
+    sg.theme('SystemDefault')
+
+    type_choice = '用电数据'
+    metering_records = []
+    contract_records = []
+    metering_list_str = []
+    contract_list_str = []
+
+    def _load_records(rec_type):
+        nonlocal metering_records, contract_records, metering_list_str, contract_list_str
+        try:
+            if rec_type == '用电数据':
+                metering_records = list_null_metering_records()
+                metering_list_str = [
+                    f'[ID:{r["id"]}] {r["query_date"]} mid={r["mid"]} {r["cons_no"]} {r["mname"]}'
+                    for r in metering_records
+                ]
+            else:
+                contract_records = list_null_contract_records()
+                contract_list_str = [
+                    f'[ID:{r["contract_id"]}] {r["contract_name"]} 购:{r["buyer"]} 售:{r["seller"]}'
+                    for r in contract_records
+                ]
+        except Exception as e:
+            sg.popup_error(f'加载失败: {e}')
+
+    _load_records(type_choice)
+
+    layout = [
+        [sg.Text(f'当前租户: {current_dept_name} (deptId={current_dept_id})', text_color='darkblue')],
+        [sg.Text('回填类型:'), sg.Combo(['用电数据', '合同数据'], default_value=type_choice, key='-TYPE-', enable_events=True, size=(15, 1))],
+        [sg.Text('', key='-COUNT-', size=(30, 1))],
+        [sg.Listbox(values=metering_list_str, key='-RECORDS-', size=(70, 15), select_mode=sg.LISTBOX_SELECT_MODE_MULTIPLE, enable_events=True, expand_x=True, expand_y=True)],
+        [sg.Text('', key='-SEL-', size=(50, 1), text_color='blue')],
+        [sg.Button('加载待回填记录'), sg.Button('执行回填选中记录'), sg.Button('关闭')],
+        [sg.Text('', key='-RESULT-', size=(50, 1), text_color='green')],
+    ]
+
+    window = sg.Window('租户数据回填', layout, finalize=True,
+                       size=(900, 650), resizable=True)
+
+    while True:
+        event, values = window.read()
+        if event in (sg.WIN_CLOSED, '关闭'):
+            break
+
+        if event == '-TYPE-':
+            type_choice = values['-TYPE-']
+            _load_records(type_choice)
+            if type_choice == '用电数据':
+                window['-RECORDS-'].update(metering_list_str)
+            else:
+                window['-RECORDS-'].update(contract_list_str)
+            count = len(metering_records) if type_choice == '用电数据' else len(contract_records)
+            window['-COUNT-'].update(f'待回填记录数: {count}')
+
+        if event == '加载待回填记录':
+            type_choice = values['-TYPE-']
+            _load_records(type_choice)
+            if type_choice == '用电数据':
+                window['-RECORDS-'].update(metering_list_str)
+                window['-COUNT-'].update(f'待回填记录数: {len(metering_records)}')
+            else:
+                window['-RECORDS-'].update(contract_list_str)
+                window['-COUNT-'].update(f'待回填记录数: {len(contract_records)}')
+
+        if event == '-RECORDS-':
+            selected = values['-RECORDS-']
+            window['-SEL-'].update(f'已选中 {len(selected)} 条')
+
+        if event == '执行回填选中记录':
+            selected = values['-RECORDS-']
+            if not selected:
+                sg.popup_error('请先选择要回填的记录')
+                continue
+
+            type_choice = values['-TYPE-']
+            if type_choice == '用电数据':
+                record_ids = []
+                for sel in selected:
+                    # 精确提取 [ID:xxx] 中的数字
+                    import re
+                    match = re.search(r'\[ID:(\d+)\]', sel)
+                    if match:
+                        rid = int(match.group(1))
+                        # 验证该 ID 在 metering_records 中存在
+                        if any(r['id'] == rid for r in metering_records):
+                            record_ids.append(rid)
+                if record_ids:
+                    try:
+                        updated = backfill_metering_dept(record_ids, current_dept_id)
+                        # 重新加载剩余记录
+                        _load_records(type_choice)
+                        window['-RECORDS-'].update(values=metering_list_str)
+                        window['-COUNT-'].update(f'剩余待回填记录数: {len(metering_records)}')
+                        window['-RESULT-'].update(f'回填成功: {updated} 条')
+                        logger.info(f'回填用电数据 dept_id: {updated} 条')
+                    except Exception as e:
+                        sg.popup_error(f'回填失败: {e}')
+            else:
+                contract_ids = []
+                for sel in selected:
+                    # 精确提取 [ID:xxx] 后的 contract_id
+                    import re
+                    match = re.search(r'\[ID:([^\]]+)\]', sel)
+                    if match:
+                        cid = match.group(1)
+                        if any(r['contract_id'] == cid for r in contract_records):
+                            contract_ids.append(cid)
+                if contract_ids:
+                    try:
+                        updated = backfill_contract_dept(contract_ids, current_dept_id)
+                        # 重新加载剩余记录
+                        _load_records(type_choice)
+                        window['-RECORDS-'].update(values=contract_list_str)
+                        window['-COUNT-'].update(f'剩余待回填记录数: {len(contract_records)}')
+                        window['-RESULT-'].update(f'回填成功: {updated} 条')
+                        logger.info(f'回填合同数据 dept_id: {updated} 条')
+                    except Exception as e:
+                        sg.popup_error(f'回填失败: {e}')
 
     window.close()
 

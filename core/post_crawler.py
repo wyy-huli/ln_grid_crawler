@@ -7,6 +7,7 @@ from auth.auth_utils import is_auth_valid
 from database.db_manager import save_type4_data, log_failure
 from utils.config import AUTH_FILE, TYPE4_URL, TYPE4_BODY_TEMPLATE, BROWSER_HEADLESS
 from utils.logger import logger
+from core.browser_guard import launch_browser, apply_stealth_patches
 
 
 def _get_cookies_from_auth():
@@ -31,11 +32,7 @@ def _playwright_fetch_type4():
     logger.info(f"[机组状态] 开始抓取: 接口={TYPE4_URL}, 日期={t_minus_one}")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            channel="chrome",
-            headless=BROWSER_HEADLESS,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        browser = launch_browser(p)
         try:
             context = browser.new_context(
                 storage_state=AUTH_FILE if os.path.exists(AUTH_FILE) else None,
@@ -46,6 +43,7 @@ def _playwright_fetch_type4():
                 ),
             )
             page = context.new_page()
+            apply_stealth_patches(page)
             # 1. 打开首页
             page.goto("https://pmos.ln.sgcc.com.cn", wait_until="networkidle", timeout=60000)
             page.wait_for_timeout(3000)

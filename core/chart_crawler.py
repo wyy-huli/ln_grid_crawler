@@ -1,4 +1,5 @@
 # core/chart_crawler.py
+import time
 import datetime
 import os
 import traceback
@@ -18,6 +19,7 @@ from utils.config import (
     BROWSER_HEADLESS,
 )
 from utils.logger import logger
+from core.browser_guard import launch_browser, apply_stealth_patches
 
 
 def run_simple_type1(api_cfg, manual_date=None):
@@ -42,11 +44,7 @@ def run_simple_type1(api_cfg, manual_date=None):
     captured = []
     context = None
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            channel="chrome",
-            headless=BROWSER_HEADLESS,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        browser = launch_browser(p)
         try:
             context = browser.new_context(
                 storage_state=AUTH_FILE if os.path.exists(AUTH_FILE) else None,
@@ -57,6 +55,7 @@ def run_simple_type1(api_cfg, manual_date=None):
                 ),
             )
             page = context.new_page()
+            apply_stealth_patches(page)
             page.goto(api_cfg["report_url"], timeout=30000)
             page.wait_for_selector("input.fr-trigger-texteditor", timeout=15000)
             page.locator("input.fr-trigger-texteditor").fill(target_date)
@@ -76,8 +75,18 @@ def run_simple_type1(api_cfg, manual_date=None):
 
             response = resp_info.value
             j = response.json()
-            if j["chartAttr"]["title"]["text"] == api_cfg["title_text"]:
-                data = j["chartAttr"]["series"][0]["data"]
+            title = j.get("chartAttr", {}).get("title", {}).get("text", "")
+            if title == api_cfg["title_text"]:
+                series = j.get("chartAttr", {}).get("series", [])
+                if not series:
+                    logger.warning(f"[{api_name}] 接口返回 series 为空")
+                    log_failure(api_code, "empty_series")
+                    return False
+                data = series[0].get("data", [])
+                if not data:
+                    logger.warning(f"[{api_name}] 接口返回 data 为空")
+                    log_failure(api_code, "empty_data")
+                    return False
                 # 时间点统一截取前5位（HH:MM）
                 for d in data:
                     d["x"] = d["x"][:5]
@@ -85,7 +94,7 @@ def run_simple_type1(api_cfg, manual_date=None):
             else:
                 logger.warning(
                     f"[{api_name}] 标题不匹配，期待 {api_cfg['title_text']}，"
-                    f"实际 {j['chartAttr']['title']['text']}"
+                    f"实际 {title}"
                 )
         except Exception as e:
             logger.error(f"[{api_name}] 抓取异常: {e}")
@@ -140,12 +149,12 @@ def run_dropdown_group(group_cfg, manual_date=None):
 
     captured = {opt["api_code"]: [] for opt in group_cfg["options"]}
     context = None
+    
+    OPTION_TIMEOUT = 90
+    page_timeout = OPTION_TIMEOUT * 1000
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            channel="chrome",
-            headless=BROWSER_HEADLESS,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        browser = launch_browser(p)
         try:
             context = browser.new_context(
                 storage_state=AUTH_FILE if os.path.exists(AUTH_FILE) else None,
@@ -156,6 +165,9 @@ def run_dropdown_group(group_cfg, manual_date=None):
                 ),
             )
             page = context.new_page()
+            apply_stealth_patches(page)
+            page.set_default_timeout(page_timeout)
+
             page.goto(group_cfg["report_url"], timeout=30000)
 
             page.wait_for_selector("input.fr-trigger-texteditor", timeout=15000)
@@ -167,49 +179,45 @@ def run_dropdown_group(group_cfg, manual_date=None):
 
             for opt in group_cfg["options"]:
                 api_name = opt.get("api_name", opt["api_code"])
+                option_start = time.time()
                 try:
-                    # 1. 尝试切换下拉选项
                     option_switched = False
                     try:
-                        # 使用文本直接点击下拉触发器（部分页面可能用 label 作为触发器）
-                        page.locator("text=风电").first.click()  # 或其他通用方式
+                        page.locator("text=风电").first.click()
                     except:
                         pass
-                    # 通用方法：寻找所有可能的触发器
+                    
                     if not option_switched:
-                        # 先点击可能的触发器（带箭头的 div 或 input）
                         dropdown_candidates = page.locator(".fr-trigger-btn-up, .fr-trigger-text, input[type='text']")
                         for i in range(dropdown_candidates.count()):
                             trigger = dropdown_candidates.nth(i)
                             if trigger.is_visible():
                                 trigger.click()
                                 page.wait_for_timeout(300)
-                                # 尝试在弹出层中点击选项文本
                                 option = page.get_by_text(opt["option_text"], exact=True)
                                 if option.is_visible():
                                     option.click()
                                     page.wait_for_timeout(300)
                                     option_switched = True
                                     break
-                        # 如果仍未找到，尝试直接输入文本（某些下拉支持搜索）
                         if not option_switched:
                             date_input.fill(opt["option_text"])
                             page.keyboard.press("Enter")
                             page.wait_for_timeout(300)
                             option_switched = True
-                    # 2. 点击查询按钮
+
                     search_btn = page.locator(
                         'div[style*="background: rgb(24, 144, 255)"]:has(span:text("查 询"))'
                     ).last
+                    
                     with page.expect_response(
                         lambda resp: "writer_out_html" in resp.url and resp.status == 200,
-                        timeout=120000,
+                        timeout=OPTION_TIMEOUT * 1000,
                     ) as resp_info:
                         search_btn.click()
 
                     response = resp_info.value
                     j = response.json()
-                    # 安全提取数据
                     chart_attr = j.get("chartAttr", {})
                     series = chart_attr.get("series", [])
 
@@ -218,12 +226,15 @@ def run_dropdown_group(group_cfg, manual_date=None):
                         for d in data:
                             d["x"] = d["x"][:5]
                         captured[opt["api_code"]].extend(data)
-                        logger.info(f"[{group_name}] {api_name} 捕获 {len(data)} 条")
+                        logger.info(f"[{group_name}] {api_name} 捕获 {len(data)} 条，耗时 {time.time()-option_start:.1f}s")
                     else:
                         logger.info(f"[{group_name}] {api_name} 响应中无数据")
                         log_failure(opt["api_code"], "empty_response")
                 except Exception as e:
-                    logger.error(f"[{group_name}] {api_name} 失败: {e}")
+                    elapsed = time.time() - option_start
+                    logger.error(f"[{group_name}] {api_name} 失败: {e}，耗时 {elapsed:.1f}s")
+                    if elapsed >= OPTION_TIMEOUT:
+                        logger.warning(f"[{group_name}] {api_name} 疑似超时，跳过该选项继续")
                     log_failure(opt["api_code"], str(e))
         except Exception as e:
             logger.error(f"[{group_name}] 整体异常: {e}")
@@ -244,29 +255,62 @@ def run_dropdown_group(group_cfg, manual_date=None):
             except Exception as be:
                 logger.error(f"[{group_name}] browser.close 异常（吞掉）: {be}")
 
+    # ========== 第二层修复：分选项即时入库 ==========
+    # 原逻辑：所有选项抓取完成后，统一遍历 captured 入库
+    # 问题：下拉组有2个选项（如风电+光伏），风电成功后抓光伏超时，
+    #       Python进程被杀导致风电数据虽已入库但 result_queue 没来得及put，
+    #       主进程判失败并触发重试；重试时需重抓2个选项，效率低且有再次超时风险。
+    # 修复：
+    #   1. 每个选项抓取成功后立即 save_type1_batch（不等其余选项）
+    #      → 风电抓完立即入库，即使后续光伏超时，风电数据已保存不会丢失
+    #   2. 成功计数在循环内即时统计，any_success 逻辑不变
+    #   3. 返回值：只有所有选项成功才返回 True，部分成功返回 False
+    #      → 部分成功时仍触发重试，补抓失败选项（save_type1_batch 是覆盖更新语义，重试安全）
     any_success = False
     success_count = 0
     fail_count = 0
+    total_count = len(group_cfg["options"])
     for opt in group_cfg["options"]:
+        api_name = opt.get("api_name", opt["api_code"])
         if captured[opt["api_code"]]:
-            save_type1_batch(
-                opt["api_code"],
-                opt.get("api_name", opt["api_code"]),
-                target_date,
-                captured[opt["api_code"]],
-            )
-            any_success = True
-            success_count += 1
+            # 第二层修复：每抓完一个选项立即入库，不等全部完成
+            try:
+                save_type1_batch(
+                    opt["api_code"],
+                    api_name,
+                    target_date,
+                    captured[opt["api_code"]],
+                )
+                any_success = True
+                success_count += 1
+                logger.info(
+                    f"[{group_name}] {api_name} 已即时入库 {len(captured[opt['api_code']])} 条 "
+                    f"(进度 {success_count}/{total_count})"
+                )
+            except Exception as e:
+                logger.error(f"[{group_name}] {api_name} 即时入库失败: {e}")
+                try:
+                    log_failure(opt["api_code"], str(e))
+                except Exception:
+                    pass
+                fail_count += 1
         else:
-            logger.warning(f"[{group_name}] {opt.get('api_name', opt['api_code'])} 无数据")
+            logger.warning(f"[{group_name}] {api_name} 无数据")
             log_failure(opt["api_code"], "no_data")
             fail_count += 1
 
-    if any_success:
-        logger.info(f"[{group_name}] 抓取完成: 成功 {success_count} 个接口, 失败 {fail_count} 个接口")
+    # 所有选项都成功才返回 True，否则返回 False 触发重试补抓失败项
+    all_success = (success_count == total_count and total_count > 0)
+    if all_success:
+        logger.info(f"[{group_name}] 抓取完成: 成功 {success_count} 个接口（全部完成）")
+    elif any_success:
+        logger.info(
+            f"[{group_name}] 部分完成: 成功 {success_count} 个, 失败 {fail_count} 个 "
+            f"（成功项已即时入库，将触发重试补抓失败项）"
+        )
     else:
-        logger.error(f"[{group_name}] 抓取失败: 所有接口均无数据")
-    return any_success
+        logger.error(f"[{group_name}] 抓取失败: 所有 {total_count} 个接口均无数据")
+    return all_success
 
 
 def run_type2(manual_date=None):
@@ -284,11 +328,7 @@ def run_type2(manual_date=None):
     captured = []
     context = None
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            channel="chrome",
-            headless=BROWSER_HEADLESS,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        browser = launch_browser(p)
         try:
             context = browser.new_context(
                 storage_state=AUTH_FILE if os.path.exists(AUTH_FILE) else None,
@@ -299,6 +339,7 @@ def run_type2(manual_date=None):
                 ),
             )
             page = context.new_page()
+            apply_stealth_patches(page)
             page.goto(REALTIME_REPORT_URL, timeout=30000)
             page.wait_for_selector("input.fr-trigger-texteditor", timeout=15000)
             page.locator("input.fr-trigger-texteditor").fill(target_date)
@@ -314,11 +355,24 @@ def run_type2(manual_date=None):
 
             response = resp_info.value
             j = response.json()
-            if j["chartAttr"]["title"]["text"] == "实时出清参考信息":
-                data = j["chartAttr"]["series"][0]["data"]
+            title = j.get("chartAttr", {}).get("title", {}).get("text", "")
+            if title == "实时出清参考信息":
+                series = j.get("chartAttr", {}).get("series", [])
+                if not series:
+                    logger.warning(f"[实时出清] 接口返回 series 为空，可能暂无数据")
+                    log_failure("realtime_clearing", "empty_series")
+                    return False
+                data = series[0].get("data", [])
+                if not data:
+                    logger.warning(f"[实时出清] 接口返回 data 为空，可能暂无数据")
+                    log_failure("realtime_clearing", "empty_data")
+                    return False
                 for d in data:
                     d["x"] = d["x"][:5]
                 captured.extend(data)
+            else:
+                logger.warning(f"[实时出清] 标题不匹配，期待 实时出清参考信息，实际 {title}")
+                log_failure("realtime_clearing", f"title_mismatch:{title}")
         except Exception as e:
             logger.error(f"[实时出清] 抓取异常: {e}")
             try:
@@ -385,6 +439,16 @@ def manual_fetch(api_code, date_str=None):
     # 类型2
     if api_code == "realtime_clearing":
         result = run_type2(manual_date=date_str)
+        if result:
+            logger.info(f"[手动补抓] 成功: 接口={api_code}")
+        else:
+            logger.error(f"[手动补抓] 失败: 接口={api_code}")
+        return result
+    # 类型4（机组状态）：run_type4 内部固定取 T-1 日期，不接收 date_str 参数
+    if api_code == "type4_unit_status":
+        from core.post_crawler import run_type4
+        logger.info("[手动补抓] 机组状态接口固定抓取 T-1 日期，忽略传入的日期参数")
+        result = run_type4()
         if result:
             logger.info(f"[手动补抓] 成功: 接口={api_code}")
         else:

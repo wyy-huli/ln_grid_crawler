@@ -24,7 +24,8 @@ AUTH_FILE = os.path.join(USER_DATA_DIR, 'auth.json')
 BROWSER_DATA_DIR = os.path.join(USER_DATA_DIR, 'browser_data')
 DATA_DIR = os.path.join(USER_DATA_DIR, 'data')
 LOG_DIR = os.path.join(DATA_DIR, 'logs')
-DB_FILE = os.path.join(USER_DATA_DIR, 'grid_data.db')
+# 旧版 SQLite 数据文件路径（升级后不再使用，仅用于启动时检测并提示用户）
+LEGACY_SQLITE_DB_FILE = os.path.join(USER_DATA_DIR, 'grid_data.db')
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -34,7 +35,12 @@ def _load_env_file():
     """加载 .env 文件，优先级（后者覆盖前者）：
     1. 程序根目录（BASE_DIR，打包后为 exe 目录）—— 默认配置
     2. 用户数据目录（USER_DATA_DIR，打包后为 %APPDATA%\\LnGridCrawler）—— 用户自定义
+
+    注意：此处不能直接 import logger（与 utils.logger 形成循环导入），
+    仅设置 _env_load_results，调用方在 logger 就绪后可读取。
     """
+    global _env_load_results
+    _env_load_results = []
     env_paths = [
         os.path.join(BASE_DIR, '.env'),
         os.path.join(USER_DATA_DIR, '.env'),
@@ -52,43 +58,58 @@ def _load_env_file():
                             key, value = line.split('=', 1)
                             os.environ[key.strip()] = value.strip()
                             count += 1
-                print(f"[CONFIG] 已加载 .env: {env_path} ({count} 项)")
+                _env_load_results.append((env_path, count, None))
             except Exception as e:
-                print(f"[CONFIG] 加载 .env 文件失败 ({env_path}): {e}")
+                _env_load_results.append((env_path, 0, str(e)))
+
+# 保存 .env 加载结果，logger 就绪后由 init_db 等入口打印
+_env_load_results = []
 
 _load_env_file()
 
-def _build_database_url():
-    """支持通过环境变量切换 MySQL / SQLite。默认 SQLite 保持向后兼容。
+# ========== MySQL 数据库配置（已硬编码，用户无需配置 .env） ==========
+# 如需覆盖（例如切换到其他 MySQL 实例），可在 .env 中设置对应的 GRID_DB_* 变量
+_DEFAULT_MYSQL_HOST = '8.140.37.185'
+_DEFAULT_MYSQL_PORT = '3306'
+_DEFAULT_MYSQL_NAME = 'grid_data'
+_DEFAULT_MYSQL_USER = 'grid_crawler'
+_DEFAULT_MYSQL_PASSWORD = 'Data123!'
 
-    MySQL 环境变量:
-        GRID_DB_TYPE=mysql
-        GRID_DB_HOST=xxx
-        GRID_DB_PORT=3306
-        GRID_DB_NAME=grid_data
-        GRID_DB_USER=root
-        GRID_DB_PASSWORD=xxx
+def _build_mysql_url():
+    """构造 MySQL 连接 URL。
+
+    默认值已硬编码在代码中（用户无需配置 .env 即可直接运行）。
+    若 .env 中设置了对应的 GRID_DB_* 变量，则覆盖默认值（保留灵活性）。
     """
     import os as _os
-    db_type = _os.environ.get('GRID_DB_TYPE', 'sqlite').lower()
-    if db_type == 'mysql':
-        host = _os.environ.get('GRID_DB_HOST', 'localhost')
-        port = _os.environ.get('GRID_DB_PORT', '3306')
-        name = _os.environ.get('GRID_DB_NAME', 'grid_data')
-        user = _os.environ.get('GRID_DB_USER', 'root')
-        password = _os.environ.get('GRID_DB_PASSWORD', '')
-        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
-    return f"sqlite:///{DB_FILE}"
+    host = _os.environ.get('GRID_DB_HOST', _DEFAULT_MYSQL_HOST)
+    port = _os.environ.get('GRID_DB_PORT', _DEFAULT_MYSQL_PORT)
+    name = _os.environ.get('GRID_DB_NAME', _DEFAULT_MYSQL_NAME)
+    user = _os.environ.get('GRID_DB_USER', _DEFAULT_MYSQL_USER)
+    password = _os.environ.get('GRID_DB_PASSWORD', _DEFAULT_MYSQL_PASSWORD)
+    return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
+
+def _has_mysql_config():
+    """是否配置了 MySQL（硬编码版本，恒返回 True）。"""
+    return True
+
+def _build_database_url():
+    """构建数据库连接 URL（强制使用远程 MySQL，配置已硬编码，不再支持 SQLite）。
+
+    默认连接参数已内置在代码中，用户无需配置 .env 即可直接运行。
+    如需覆盖（如切换 MySQL 实例），可在 .env 中设置 GRID_DB_* 变量。
+    """
+    return _build_mysql_url()
 
 DATABASE_URL = _build_database_url()
 
 def is_mysql():
-    """判断当前是否使用 MySQL 数据库。"""
-    return DATABASE_URL.startswith('mysql')
+    """判断当前配置是否为 MySQL（强制 MySQL 版本，恒返回 True，保留接口用于外部兼容）。"""
+    return True
 
 # 浏览器是否以无头模式运行（headless=True 不显示浏览器窗口，减少显存占用）
-# 可通过环境变量 GRID_HEADLESS=true 开启无头模式
-BROWSER_HEADLESS = os.environ.get('GRID_HEADLESS', 'false').lower() == 'true'
+# C-3 修复：默认改为 true（生产环境省 GPU 显存），调试时可设 GRID_HEADLESS=false 切回非 headless
+BROWSER_HEADLESS = os.environ.get('GRID_HEADLESS', 'true').lower() == 'true'
 
 # 普通类型1接口（无下拉）
 SIMPLE_TYPE1_APIS = [    {
@@ -97,7 +118,7 @@ SIMPLE_TYPE1_APIS = [    {
         "api_name": "系统负荷预测(周)",
         "report_url": "https://pmos.ln.sgcc.com.cn/px-basesystem-reportform/decision/view/form?viewlet=%25E4%25BF%25A1%25E6%2581%25AF%25E5%258F%2591%25E5%25B8%2583%25E7%258E%25B0%25E8%25B4%25A7%252Flnsnxh_w_dqxtfhyc.frm&ref_t=design&ref_c=7368af68-545a-48dc-ae48-720f3e8e1fff",
         "date_offset": 1,
-        "fetch_time": "09:00"
+        "fetch_time": "08:58"
     },
     {"title_text": "系统负荷预测", "api_code": "sys_load_d", "api_name": "系统负荷预测(日)","report_url": "https://pmos.ln.sgcc.com.cn/px-basesystem-reportform/decision/view/form?viewlet=%25E4%25BF%25A1%25E6%2581%25AF%25E5%258F%2591%25E5%25B8%2583%25E7%258E%25B0%25E8%25B4%25A7%252Flnsnxh_xtfhyc.frm&ref_t=design&ref_c=2ace123a-94db-4163-aee1-8fd5043df37c","date_offset": 1, "fetch_time": "09:03"},
     {"title_text": "联络线预计划", "api_code": "interline_pred", "api_name": "省间联络线输电曲线预测-日前系统间联络线输电曲线预测","report_url": "https://pmos.ln.sgcc.com.cn/px-basesystem-reportform/decision/view/form?viewlet=%25E4%25BF%25A1%25E6%2581%25AF%25E5%258F%2591%25E5%25B8%2583%25E7%258E%25B0%25E8%25B4%25A7%252Flnsnxh_llxyjh.frm", "date_offset": 1, "fetch_time": "09:05"},
@@ -175,7 +196,7 @@ DROP_GROUPS = [
         "group_name": "电力电量供需平衡预测",
         "report_url": "https://pmos.ln.sgcc.com.cn/px-basesystem-reportform/decision/view/form?viewlet=%25E4%25BF%25A1%25E6%2581%25AF%25E5%258F%2591%25E5%25B8%2583%25E7%258E%25B0%25E8%25B4%25A7%252Flnsnxh_rqsczfby.frm&ref_t=design&ref_c=0bd8279b-aee8-42ab-90f8-7736dae09702",
         "options": [
-            {"option_text": "电力电量供需平衡预测", "api_code": "newenergy_wind_actual", "api_name": "电力电量供需平衡预测(日）"},
+            {"option_text": "电力电量供需平衡预测", "api_code": "balance_d", "api_name": "电力电量供需平衡预测(日）"},
         ],
         "date_offset": -1,
         "fetch_time": "10:13"
@@ -186,7 +207,6 @@ DROP_GROUPS = [
 TYPE2_APIS = [
     {"title_text": "实时出清参考信息", "api_code": "realtime_clearing", "api_name": "实时出清参考信息"}
 ]
-REALTIME_REPORT_URL = "https://pmos.ln.sgcc.com.cn/px-basesystem-reportform/decision/view/form?viewlet=%25E4%25BF%25A1%25E6%2581%25AF%25E5%258F%2591%25E5%25B8%2583%25E7%258E%25B0%25E8%25B4%25A7%252Flnsnxh_sscqckxx.frm&ref_t=design&ref_c=9dc2730b-1383-4e44-b9aa-54e6ca85fd3e"
 # ==================== 报表URL ====================
 # 类型1/2 公用帆软入口
 REPORT_URL = "https://pmos.ln.sgcc.com.cn/px-basesystem-reportform/decision/view/form?viewlet=%25E4%25BF%25A1%25E6%2581%25AF%25E5%258F%2591%25E5%25B8%2583%25E7%258E%25B0%25E8%25B4%25A7%252Flnsnxh_w_dqxtfhyc.frm&ref_t=design&ref_c=7368af68-545a-48dc-ae48-720f3e8e1fff"

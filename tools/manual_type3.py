@@ -1,6 +1,7 @@
 # 临时手动执行类型3
 import sys, json, datetime, requests
 from auth.auth_utils import is_auth_valid
+from auth.tenant_context import get_current_dept_id, init_tenant_context
 from database.db_manager import save_type3_query
 from utils.config import TYPE3_MEMBER_URL, TYPE3_CONS_URL, TYPE3_QUERY_URL, AUTH_FILE
 
@@ -21,12 +22,13 @@ if __name__ == '__main__':
     mname = sys.argv[4] if len(sys.argv) > 4 else None
     with open(AUTH_FILE) as f:
         cookies = {c['name']: c['value'] for c in json.load(f)['cookies']}
+    init_tenant_context()
     resp = requests.post(TYPE3_QUERY_URL, json={
         "data": {"consNo": [cons_no], "mid": [mid], "infoDate": date},
         "pageInfo": {"total": 96, "list": [], "pageNum": 1, "pageSize": 96}
     }, cookies=cookies)
     if resp.status_code == 200 and resp.json()['status'] == 0:
-        save_type3_query(date, cons_no, mid, json.dumps(resp.json()), mname)
+        save_type3_query(date, cons_no, mid, json.dumps(resp.json()), mname, dept_id=get_current_dept_id())
         print("保存成功")
     else:
         print("查询失败:", resp.text)
